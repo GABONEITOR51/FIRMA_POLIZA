@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firma en PDF — 805 MultiServices</title>
+<meta name="description" content="Coloca una firma guardada como imagen sobre cualquier PDF y descarga el documento firmado. Todo se procesa en el navegador: ningún archivo se sube a un servidor.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root{
+    --bg:#e8e6e1; --panel:#fbfaf8; --panel-2:#f1efeb; --line:#d7d3cb; --line-soft:#e5e1d9;
+    --text:#23211e; --muted:#726d64; --accent:#1c3f6e; --accent-ink:#ffffff; --accent-soft:#dde5f1;
+    --seal:#9e3a2e; --seal-soft:#f2ddd9; --ok:#2f6b46;
+    --page-shadow:0 1px 3px rgba(35,33,30,.20), 0 12px 28px rgba(35,33,30,.13);
+    --rail-w:330px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161719; --panel:#212327; --panel-2:#1a1c1f; --line:#33363c; --line-soft:#292c31;
+      --text:#e7e4de; --muted:#98938a; --accent:#82a9dd; --accent-ink:#10151c; --accent-soft:#232f3d;
+      --seal:#df8b7f; --seal-soft:#3a2723; --ok:#7fbf9a;
+      --page-shadow:0 1px 3px rgba(0,0,0,.5), 0 14px 34px rgba(0,0,0,.42);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161719; --panel:#212327; --panel-2:#1a1c1f; --line:#33363c; --line-soft:#292c31;
+    --text:#e7e4de; --muted:#98938a; --accent:#82a9dd; --accent-ink:#10151c; --accent-soft:#232f3d;
+    --seal:#df8b7f; --seal-soft:#3a2723; --ok:#7fbf9a;
+    --page-shadow:0 1px 3px rgba(0,0,0,.5), 0 14px 34px rgba(0,0,0,.42);
+  }
+
+  *{box-sizing:border-box}
+  img{max-width:100%}
+  [hidden]{display:none !important}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"IBM Plex Sans", system-ui, -apple-system, Segoe UI, sans-serif;
+    font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace}
+  button, input, select{font:inherit; color:inherit}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+  .app{display:grid; grid-template-columns:var(--rail-w) 1fr; height:100dvh; overflow:hidden}
+
+  /* ---------- rail ---------- */
+  .rail{
+    background:var(--panel); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .brand{
+    display:flex; align-items:baseline; gap:9px;
+    padding:16px 18px 14px; border-bottom:1px solid var(--line);
+  }
+  .brand h1{margin:0; font-size:17px; font-weight:600; letter-spacing:-.01em}
+  .brand .sub{font-size:11px; color:var(--muted); letter-spacing:.06em; text-transform:uppercase}
+  .rail-scroll{overflow-y:auto; padding:4px 0 22px; flex:1}
+  section.blk{padding:16px 18px; border-bottom:1px solid var(--line-soft); display:flex; flex-direction:column; gap:10px}
+  .blk h2{
+    margin:0; font-size:11px; font-weight:600; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); display:flex; align-items:center; gap:7px;
+  }
+  .blk h2 .num{
+    font-family:"IBM Plex Mono", monospace; font-size:10px; color:var(--accent);
+    border:1px solid var(--line); border-radius:2px; padding:0 4px; letter-spacing:0;
+  }
+  .hint{font-size:12px; color:var(--muted); margin:0}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:8px 12px; border:1px solid var(--line); background:var(--panel-2);
+    border-radius:5px; cursor:pointer; font-size:13px; font-weight:500;
+    transition:background .12s, border-color .12s;
+  }
+  .btn:hover:not(:disabled){border-color:var(--muted)}
+  .btn:disabled{opacity:.45; cursor:not-allowed}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+  .btn.wide{width:100%}
+  .btn.sm{padding:5px 9px; font-size:12px}
+
+  .filecard{
+    display:flex; gap:10px; align-items:flex-start; padding:9px 10px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:5px;
+  }
+  .filecard .nm{font-size:12.5px; font-weight:500; word-break:break-all; line-height:1.3}
+  .filecard .mt{font-size:11px; color:var(--muted)}
+
+  /* signature preview: checkerboard so transparency is visible */
+  .sigbox{
+    height:96px; border:1px solid var(--line); border-radius:5px; display:grid; place-items:center;
+    background-color:#fff;
+    background-image:linear-gradient(45deg,#e6e4e0 25%,transparent 25%,transparent 75%,#e6e4e0 75%),
+                     linear-gradient(45deg,#e6e4e0 25%,transparent 25%,transparent 75%,#e6e4e0 75%);
+    background-size:14px 14px; background-position:0 0, 7px 7px;
+    overflow:hidden; padding:6px;
+  }
+  .sigbox img{max-width:100%; max-height:100%; object-fit:contain}
+  .sigbox .empty{font-size:12px; color:#8b857b}
+
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .row.tight{gap:6px}
+  label.check{display:flex; gap:8px; align-items:flex-start; font-size:12.5px; cursor:pointer; color:var(--text)}
+  label.check input{margin:2px 0 0; accent-color:var(--accent)}
+
+  .seg{display:flex; border:1px solid var(--line); border-radius:5px; overflow:hidden; background:var(--panel-2)}
+  .seg button{
+    flex:1; padding:7px 4px; background:transparent; border:0; cursor:pointer; font-size:12.5px;
+    border-right:1px solid var(--line); color:var(--muted); font-weight:500;
+  }
+  .seg button:last-child{border-right:0}
+  .seg button[aria-pressed="true"]{background:var(--accent); color:var(--accent-ink); font-weight:600}
+
+  .swatches{display:flex; gap:6px}
+  .sw{width:26px; height:26px; border-radius:50%; border:2px solid var(--line); cursor:pointer; padding:0}
+  .sw[aria-pressed="true"]{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft)}
+
+  input[type="text"], input[type="number"]{
+    width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:5px; background:var(--panel-2);
+  }
+  input[type="range"]{width:100%; accent-color:var(--accent)}
+
+  .findlist{display:flex; flex-direction:column; gap:3px; max-height:220px; overflow-y:auto; margin:0; padding:0; list-style:none}
+  .findlist li button{
+    width:100%; text-align:left; display:flex; align-items:baseline; gap:9px;
+    padding:6px 8px; background:transparent; border:1px solid transparent; border-radius:4px; cursor:pointer; font-size:12.5px;
+  }
+  .findlist li button:hover{background:var(--panel-2); border-color:var(--line)}
+  .findlist .pg{
+    font-family:"IBM Plex Mono", monospace; font-size:11px; color:var(--seal);
+    background:var(--seal-soft); border-radius:3px; padding:1px 5px; flex:none;
+  }
+  .findlist .lbl{color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .findlist .done{color:var(--ok); font-size:11px; margin-left:auto; flex:none}
+
+  /* ---------- workspace ---------- */
+  .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
+  .topbar{
+    display:flex; align-items:center; gap:14px; padding:10px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  .topbar .doc{font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .topbar .meta{font-size:11.5px; color:var(--muted)}
+  .spacer{flex:1}
+  .badge{
+    font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--seal);
+    background:var(--seal-soft); border-radius:3px; padding:2px 7px; font-weight:600; flex:none;
+  }
+
+  .stage{flex:1; overflow:auto; padding:26px 20px 90px; display:flex; flex-direction:column; align-items:center; gap:26px}
+  .pagewrap{position:relative; width:min(880px, 100%); flex:none}
+  .pagewrap .pnum{
+    position:absolute; left:-46px; top:0; font-family:"IBM Plex Mono", monospace;
+    font-size:11px; color:var(--muted); user-select:none;
+  }
+  .page{
+    position:relative; width:100%; background:#fff; box-shadow:var(--page-shadow); border-radius:2px;
+    cursor:crosshair; touch-action:manipulation;
+  }
+  .page canvas{display:block; width:100%; height:auto; border-radius:2px}
+  .page.armed{outline:2px solid var(--accent); outline-offset:3px}
+
+  .marker{
+    position:absolute; border-bottom:2px dashed var(--seal); pointer-events:none; opacity:.75;
+  }
+
+  .stamp{position:absolute; cursor:grab; touch-action:none}
+  .stamp img{width:100%; height:100%; display:block; pointer-events:none; user-select:none}
+  .stamp .txt{
+    white-space:pre; line-height:1; pointer-events:none; user-select:none;
+    font-family:Helvetica, Arial, sans-serif;
+  }
+  .stamp::after{
+    content:""; position:absolute; inset:-4px; border:1px dashed transparent; border-radius:2px; pointer-events:none;
+  }
+  .stamp:hover::after{border-color:var(--accent)}
+  .stamp.sel::after{border-color:var(--accent); border-style:solid}
+  .stamp.dragging{cursor:grabbing}
+  .stamp .grip{
+    position:absolute; right:-7px; bottom:-7px; width:13px; height:13px;
+    background:var(--accent); border:2px solid #fff; border-radius:2px; cursor:nwse-resize; display:none;
+  }
+  .stamp.sel .grip{display:block}
+  .stamp .tools{
+    position:absolute; bottom:calc(100% + 9px); left:0; display:none; gap:4px;
+    background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:3px; box-shadow:var(--page-shadow);
+    white-space:nowrap;
+  }
+  .stamp.sel .tools{display:flex}
+  .stamp .tools button{
+    border:0; background:transparent; padding:3px 7px; cursor:pointer; border-radius:3px; font-size:12px; line-height:1.4;
+  }
+  .stamp .tools button:hover{background:var(--panel-2)}
+  .stamp .tools .del{color:var(--seal)}
+
+  .empty-stage{
+    max-width:430px; text-align:center; color:var(--muted); font-size:13px; margin-top:60px;
+  }
+
+  .toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+    background:var(--text); color:var(--bg); padding:9px 16px; border-radius:6px; font-size:13px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;
+    max-width:min(90vw,520px); text-align:center;
+  }
+  .toast.on{opacity:1; transform:translateX(-50%) translateY(-4px)}
+
+  .steps{margin:0; padding-left:16px; font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:5px}
+
+  @media (prefers-reduced-motion: reduce){*{transition:none !important}}
+  @media (max-width: 860px){
+    .app{grid-template-columns:1fr; grid-template-rows:auto 1fr; height:auto; min-height:100dvh; overflow:visible}
+    .rail{border-right:0; border-bottom:1px solid var(--line); max-height:none}
+    .rail-scroll{overflow:visible}
+    .work{overflow:visible}
+    .stage{overflow:visible; padding:18px 12px 80px}
+    .pagewrap .pnum{left:0; top:-18px}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <h1>Firma en PDF</h1>
+      <span class="sub">805</span>
+    </div>
+    <div class="rail-scroll">
+
+      <section class="blk">
+        <h2><span class="num">1</span> Documento</h2>
+        <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
+        <button class="btn wide" id="pdfBtn">Abrir PDF…</button>
+        <div class="filecard" id="pdfCard" hidden>
+          <div>
+            <div class="nm" id="pdfName"></div>
+            <div class="mt mono" id="pdfMeta"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">2</span> Firma</h2>
+        <div class="sigbox"><img id="sigPreview" alt="Firma cargada" style="display:none"><span class="empty" id="sigEmpty">sin firma</span></div>
+        <input type="file" id="sigInput" accept="image/*" hidden>
+        <button class="btn wide" id="sigBtn">Cargar imagen de la firma…</button>
+        <p class="hint">PNG o JPG. También puedes pegarla con Ctrl+V.</p>
+        <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
+        <div class="row">
+          <span class="hint" style="flex:none">Tinta</span>
+          <div class="swatches" id="inkSwatches">
+            <button class="sw" data-ink="black" style="background:#101418" aria-pressed="true" title="Negro"></button>
+            <button class="sw" data-ink="blue" style="background:#12327a" aria-pressed="false" title="Azul"></button>
+            <button class="sw" data-ink="orig" style="background:linear-gradient(135deg,#888 50%,#ccc 50%)" aria-pressed="false" title="Original"></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">3</span> Qué vas a colocar</h2>
+        <div class="seg" id="toolSeg">
+          <button data-tool="sig" aria-pressed="true">Firma</button>
+          <button data-tool="date" aria-pressed="false">Fecha</button>
+          <button data-tool="text" aria-pressed="false">Texto</button>
+        </div>
+        <div id="textOpts" hidden>
+          <input type="text" id="textValue" placeholder="Texto a colocar" value="Antonio Lopez Lopez">
+        </div>
+        <div id="dateOpts" hidden>
+          <input type="text" id="dateValue" placeholder="MM/DD/AAAA">
+        </div>
+        <p class="hint">Haz clic sobre el documento para colocarlo. Arrastra para mover, esquina azul para cambiar el tamaño, <span class="mono">Supr</span> para borrar.</p>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">4</span> Líneas de firma detectadas</h2>
+        <p class="hint" id="findMsg">Abre un PDF para buscarlas.</p>
+        <ul class="findlist" id="findList"></ul>
+        <label class="check"><input type="checkbox" id="withDate" checked> Poner también la fecha al lado</label>
+        <button class="btn wide" id="signAll" disabled>Firmar todas las detectadas</button>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">5</span> Guardar</h2>
+        <button class="btn primary wide" id="saveBtn" disabled>Descargar PDF firmado</button>
+        <div class="row tight">
+          <button class="btn sm" id="clearBtn">Quitar todas las firmas</button>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+
+  <main class="work">
+    <div class="topbar">
+      <span class="badge" id="sampleBadge">Documento de muestra</span>
+      <span class="doc" id="topDoc">Cargando…</span>
+      <span class="meta mono" id="topMeta"></span>
+      <span class="spacer"></span>
+      <span class="meta" id="placedCount">0 elementos colocados</span>
+    </div>
+    <div class="stage" id="stage"></div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var pdfjsLib = window.pdfjsLib;
+  if (!pdfjsLib || !window.PDFLib){
+    document.getElementById("stage").innerHTML =
+      '<p class="empty-stage">No se pudieron cargar las librerías de PDF. Revisa tu conexión y vuelve a abrir la página.</p>';
+    document.getElementById("topDoc").textContent = "Sin conexión a las librerías";
+    document.getElementById("sampleBadge").hidden = true;
+    return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  var PDFLib = window.PDFLib;
+
+  var CSS_W = 880;        // ancho de referencia de la página en pantalla
+  var RES = 1.35;         // multiplicador de resolución del canvas
+
+  var S = {
+    bytes:null,           // Uint8Array original del PDF (intacto para pdf-lib)
+    name:"muestra.pdf",
+    isSample:true,
+    pages:[],             // {wrap, el, dispW, dispH}  dispW/H en unidades PDF (con rotación)
+    stamps:[],            // {id,page,u,v,w,type,text,size,el}
+    finds:[],             // {page,u,v,h,label,dateU,dateV,used}
+    sig:null,             // {bytes:Uint8Array, url, w, h}
+    rawSig:null,          // {img, url}
+    tool:"sig",
+    ink:"black",
+    sel:null,
+    seq:1
+  };
+
+  var INK = { black:[0.06,0.08,0.09], blue:[0.07,0.19,0.48], orig:null };
+  var INK_CSS = { black:"#101418", blue:"#12327a", orig:"#101418" };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var stage = $("stage");
+
+  function toast(msg, ms){
+    var t = $("toast"); t.textContent = msg; t.classList.add("on");
+    clearTimeout(toast._t); toast._t = setTimeout(function(){ t.classList.remove("on"); }, ms || 2600);
+  }
+  function todayUS(){
+    var d = new Date();
+    return (d.getMonth()+1) + "/" + d.getDate() + "/" + d.getFullYear();
+  }
+
+  /* ============================ carga del PDF ============================ */
+
+  async function openPdf(bytes, name, isSample){
+    S.bytes = bytes;
+    S.name = name;
+    S.isSample = !!isSample;
+    S.stamps = []; S.finds = []; S.sel = null;
+    stage.innerHTML = "";
+    S.pages = [];
+
+    var task = pdfjsLib.getDocument({ data: bytes.slice(0) });
+    var doc = await task.promise;
+
+    $("topDoc").textContent = name;
+    $("topMeta").textContent = doc.numPages + " pág.";
+    $("sampleBadge").hidden = !isSample;
+    $("pdfCard").hidden = isSample;
+    $("pdfName").textContent = name;
+    $("pdfMeta").textContent = doc.numPages + " páginas";
+
+    for (var i = 1; i <= doc.numPages; i++){
+      var page = await doc.getPage(i);
+      var vp = page.getViewport({ scale: 1 });
+
+      var wrap = document.createElement("div");
+      wrap.className = "pagewrap";
+      var pnum = document.createElement("div");
+      pnum.className = "pnum"; pnum.textContent = "pág. " + i;
+      var pel = document.createElement("div");
+      pel.className = "page";
+      pel.style.aspectRatio = vp.width + " / " + vp.height;
+      var canvas = document.createElement("canvas");
+      pel.appendChild(canvas);
+      wrap.appendChild(pnum); wrap.appendChild(pel);
+      stage.appendChild(wrap);
+
+      var scale = (CSS_W * RES) / vp.width;
+      var rvp = page.getViewport({ scale: scale });
+      canvas.width = Math.floor(rvp.width);
+      canvas.height = Math.floor(rvp.height);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: rvp }).promise;
+
+      var rec = { el: pel, wrap: wrap, dispW: vp.width, dispH: vp.height, index: i - 1 };
+      S.pages.push(rec);
+      bindPage(rec);
+
+      await detectOnPage(page, vp, i - 1);
+    }
+
+    renderFinds();
+    updateCount();
+    $("signAll").disabled = S.finds.length === 0;
+  }
+
+  /* ==================== detección de líneas de firma ==================== */
+
+  var SIG_RE = /^(?:x\s*)?(?:[a-zA-Zá-úÁ-Ú'’.\-]+\s+){0,3}(signature|signatures|firma)(?:\s+(?:of|de|del)\s+[a-zA-Zá-úÁ-Ú ]{0,14})?[\s:._]*$/i;
+  var DATE_RE = /^(date|fecha)[\s:._]*$/i;
+
+  async function detectOnPage(page, vp, pageIndex){
+    var tc;
+    try { tc = await page.getTextContent(); } catch(e){ return; }
+    var items = [];
+    for (var i = 0; i < tc.items.length; i++){
+      var it = tc.items[i];
+      var raw = (it.str || "").replace(/<[^>]*>/g, "").trim();
+      if (!raw) continue;
+      var m = pdfjsLib.Util.transform(vp.transform, it.transform);
+      var h = Math.hypot(m[2], m[3]) || 10;
+      items.push({ s: raw, x: m[4], y: m[5], h: h });
+    }
+    var sigs = [], dates = [];
+    items.forEach(function(o){
+      if (o.s.length <= 40 && SIG_RE.test(o.s)) sigs.push(o);
+      else if (DATE_RE.test(o.s)) dates.push(o);
+    });
+    sigs.forEach(function(o){
+      var d = null;
+      for (var j = 0; j < dates.length; j++){
+        if (Math.abs(dates[j].y - o.y) < o.h * 0.7 && dates[j].x > o.x) {
+          if (!d || dates[j].x < d.x) d = dates[j];
+        }
+      }
+      S.finds.push({
+        page: pageIndex, label: o.s,
+        u: o.x / vp.width, v: o.y / vp.height, h: o.h / vp.height,
+        dateU: d ? d.x / vp.width : null, dateV: d ? d.y / vp.height : null,
+        used: false
+      });
+    });
+  }
+
+  function renderFinds(){
+    var ul = $("findList"); ul.innerHTML = "";
+    if (!S.finds.length){
+      $("findMsg").textContent = "No se encontraron líneas de firma en este PDF. Colócalas a mano con un clic.";
+      return;
+    }
+    $("findMsg").textContent = S.finds.length + " línea(s) encontradas. Toca una para ir ahí.";
+    S.finds.forEach(function(f, i){
+      var li = document.createElement("li");
+      var b = document.createElement("button");
+      b.innerHTML = '<span class="pg">p.' + (f.page + 1) + '</span><span class="lbl"></span>';
+      b.querySelector(".lbl").textContent = f.label;
+      if (f.used){ var ok = document.createElement("span"); ok.className = "done"; ok.textContent = "✓"; b.appendChild(ok); }
+      b.addEventListener("click", function(){
+        S.pages[f.page].wrap.scrollIntoView({ behavior:"smooth", block:"center" });
+        flashMarker(f);
+      });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+
+  function flashMarker(f){
+    var pel = S.pages[f.page].el;
+    var mk = document.createElement("div");
+    mk.className = "marker";
+    mk.style.left = (f.u * 100) + "%";
+    mk.style.top = ((f.v - f.h * 0.35) * 100) + "%";
+    mk.style.width = "34%";
+    pel.appendChild(mk);
+    setTimeout(function(){ mk.remove(); }, 2200);
+  }
+
+  /* ============================ colocación ============================ */
+
+  function bindPage(rec){
+    rec.el.addEventListener("click", function(ev){
+      if (ev.target.closest(".stamp")) return;
+      var r = rec.el.getBoundingClientRect();
+      var u = (ev.clientX - r.left) / r.width;
+      var v = (ev.clientY - r.top) / r.height;
+      placeAt(rec.index, u, v, true);
+    });
+  }
+
+  // u,v = punto de clic. centered=true -> el elemento se centra en ese punto.
+  function placeAt(pageIndex, u, v, centered, opts){
+    opts = opts || {};
+    var st;
+    if (S.tool === "sig"){
+      if (!S.sig){ toast("Primero carga la imagen de la firma."); return null; }
+      var w = opts.w || 0.20;
+      var hRatio = w * (S.sig.h / S.sig.w) * (S.pages[pageIndex].dispW / S.pages[pageIndex].dispH);
+      st = { type:"sig", w:w, h:hRatio };
+    } else {
+      var txt = S.tool === "date" ? ($("dateValue").value || todayUS()) : ($("textValue").value || "");
+      if (!txt.trim()){ toast("Escribe el texto antes de colocarlo."); return null; }
+      st = { type:"text", text:txt, size: opts.size || 0.0135, w:0, h:0 };
+    }
+    st.id = S.seq++;
+    st.page = pageIndex;
+    st.u = u; st.v = v;
+    if (centered){
+      if (st.type === "sig"){ st.u = u - st.w/2; st.v = v - st.h/2; }
+      else { st.v = v - st.size/2; }
+    }
+    S.stamps.push(st);
+    mountStamp(st);
+    select(st);
+    updateCount();
+    return st;
+  }
+
+  function mountStamp(st){
+    var el = document.createElement("div");
+    el.className = "stamp";
+    el.dataset.id = st.id;
+
+    if (st.type === "sig"){
+      var img = document.createElement("img");
+      img.src = S.sig.url; img.alt = "firma";
+      el.appendChild(img);
+    } else {
+      var sp = document.createElement("span");
+      sp.className = "txt";
+      sp.textContent = st.text;
+      el.appendChild(sp);
+    }
+
+    var tools = document.createElement("div");
+    tools.className = "tools";
+    tools.innerHTML = '<button data-a="minus" title="Más chico">−</button>' +
+                      '<button data-a="plus" title="Más grande">+</button>' +
+                      '<button data-a="dup" title="Duplicar">Duplicar</button>' +
+                      '<button data-a="del" class="del" title="Borrar">Borrar</button>';
+    tools.addEventListener("click", function(ev){
+      var b = ev.target.closest("button"); if (!b) return;
+      ev.stopPropagation();
+      var a = b.dataset.a;
+      if (a === "del") removeStamp(st);
+      else if (a === "dup"){ var c = Object.assign({}, st); c.id = S.seq++; c.u += 0.03; c.v += 0.03; delete c.el; S.stamps.push(c); mountStamp(c); select(c); updateCount(); }
+      else resize(st, a === "plus" ? 1.12 : 1/1.12);
+    });
+    el.appendChild(tools);
+
+    var grip = document.createElement("div");
+    grip.className = "grip";
+    el.appendChild(grip);
+
+    S.pages[st.page].el.appendChild(el);
+    st.el = el;
+    layout(st);
+
+    el.addEventListener("pointerdown", function(ev){
+      if (ev.target.closest(".tools")) return;
+      ev.stopPropagation();
+      select(st);
+      var isGrip = ev.target === grip;
+      var rect = S.pages[st.page].el.getBoundingClientRect();
+      var sx = ev.clientX, sy = ev.clientY;
+      var u0 = st.u, v0 = st.v, w0 = st.w, sz0 = st.size;
+      el.setPointerCapture(ev.pointerId);
+      el.classList.add("dragging");
+      function move(e){
+        var dx = (e.clientX - sx) / rect.width, dy = (e.clientY - sy) / rect.height;
+        if (isGrip){
+          if (st.type === "sig"){
+            var nw = Math.max(0.03, Math.min(0.95, w0 + dx));
+            st.h = st.h * (nw / st.w); st.w = nw;
+          } else {
+            st.size = Math.max(0.004, Math.min(0.12, sz0 + dy));
+          }
+        } else {
+          st.u = u0 + dx; st.v = v0 + dy;
+        }
+        layout(st);
+      }
+      function up(){
+        el.classList.remove("dragging");
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+      }
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+    });
+  }
+
+  function resize(st, f){
+    if (st.type === "sig"){ st.w = Math.max(0.03, Math.min(0.95, st.w * f)); st.h = st.h * f; }
+    else st.size = Math.max(0.004, Math.min(0.12, st.size * f));
+    layout(st);
+  }
+
+  function layout(st){
+    var el = st.el;
+    el.style.left = (st.u * 100) + "%";
+    el.style.top = (st.v * 100) + "%";
+    if (st.type === "sig"){
+      el.style.width = (st.w * 100) + "%";
+      el.style.height = (st.h * 100) + "%";
+      var im = el.querySelector("img");
+      if (im) im.style.filter = "none";
+    } else {
+      el.style.width = "auto"; el.style.height = "auto";
+      var sp = el.querySelector(".txt");
+      // el tamaño se expresa como fracción de la altura de la página
+      var ph = S.pages[st.page].el.getBoundingClientRect().height || 1;
+      sp.style.fontSize = (st.size * ph) + "px";
+      sp.style.color = INK_CSS[S.ink];
+    }
+  }
+
+  function relayoutAll(){ S.stamps.forEach(layout); }
+  window.addEventListener("resize", relayoutAll);
+
+  function select(st){
+    if (S.sel && S.sel.el) S.sel.el.classList.remove("sel");
+    S.sel = st;
+    if (st && st.el) st.el.classList.add("sel");
+  }
+  function removeStamp(st){
+    if (st.el) st.el.remove();
+    S.stamps = S.stamps.filter(function(x){ return x !== st; });
+    if (S.sel === st) S.sel = null;
+    updateCount();
+  }
+  function updateCount(){
+    $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
+    $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
+  }
+
+  document.addEventListener("keydown", function(ev){
+    if (!S.sel) return;
+    var tag = (ev.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea") return;
+    if (ev.key === "Delete" || ev.key === "Backspace"){ ev.preventDefault(); removeStamp(S.sel); return; }
+    var step = ev.shiftKey ? 0.01 : 0.002;
+    if (ev.key === "ArrowLeft"){ S.sel.u -= step; layout(S.sel); ev.preventDefault(); }
+    if (ev.key === "ArrowRight"){ S.sel.u += step; layout(S.sel); ev.preventDefault(); }
+    if (ev.key === "ArrowUp"){ S.sel.v -= step; layout(S.sel); ev.preventDefault(); }
+    if (ev.key === "ArrowDown"){ S.sel.v += step; layout(S.sel); ev.preventDefault(); }
+  });
+  stage.addEventListener("pointerdown", function(ev){
+    if (!ev.target.closest(".stamp")) select(null);
+  });
+
+  /* ======================= firmar todas las detectadas ======================= */
+
+  $("signAll").addEventListener("click", function(){
+    if (!S.sig){ toast("Primero carga la imagen de la firma."); return; }
+    var withDate = $("withDate").checked;
+    var n = 0;
+    var prevTool = S.tool;
+    S.finds.forEach(function(f){
+      var pg = S.pages[f.page];
+      // la etiqueta ("Signature") va debajo de la raya: la firma se apoya encima
+      var sigW = 0.22;
+      var hRatio = sigW * (S.sig.h / S.sig.w) * (pg.dispW / pg.dispH);
+      S.tool = "sig";
+      var st = placeAt(f.page, f.u + 0.005, f.v - f.h * 1.45 - hRatio, false, { w: sigW });
+      if (st) n++;
+      if (withDate && f.dateU != null){
+        S.tool = "date";
+        $("dateValue").value = $("dateValue").value || todayUS();
+        placeAt(f.page, f.dateU + 0.005, f.dateV - f.h * 1.9, false, { size: f.h * 0.95 });
+      }
+      f.used = true;
+    });
+    S.tool = prevTool;
+    syncToolUI();
+    renderFinds();
+    select(null);
+    toast(n + " firma(s) colocadas. Revisa cada página y ajusta arrastrando.");
+  });
+
+  $("clearBtn").addEventListener("click", function(){
+    S.stamps.slice().forEach(removeStamp);
+    S.finds.forEach(function(f){ f.used = false; });
+    renderFinds();
+  });
+
+  /* ============================ imagen de firma ============================ */
+
+  function processSignature(){
+    if (!S.rawSig) return;
+    var img = S.rawSig.img;
+    var maxW = 1200;
+    var scale = Math.min(1, maxW / img.naturalWidth);
+    var w = Math.max(1, Math.round(img.naturalWidth * scale));
+    var h = Math.max(1, Math.round(img.naturalHeight * scale));
+    var c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    var ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+
+    if ($("clean").checked || S.ink !== "orig"){
+      var d = ctx.getImageData(0, 0, w, h);
+      var p = d.data;
+      var ink = INK[S.ink];
+      for (var i = 0; i < p.length; i += 4){
+        var a0 = p[i+3];
+        if (a0 === 0) continue;
+        var lum = (p[i]*0.299 + p[i+1]*0.587 + p[i+2]*0.114) / 255;
+        var dark = Math.min(1, Math.max(0, (1 - lum) * 1.28));
+        if ($("clean").checked){
+          p[i+3] = Math.round(a0 * dark);
+        }
+        if (ink && p[i+3] > 0){
+          p[i]   = Math.round(ink[0] * 255);
+          p[i+1] = Math.round(ink[1] * 255);
+          p[i+2] = Math.round(ink[2] * 255);
+        }
+      }
+      ctx.putImageData(d, 0, 0);
+    }
+
+    var url = c.toDataURL("image/png");
+    var b64 = url.split(",")[1];
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+
+    S.sig = { bytes: bytes, url: url, w: w, h: h };
+    $("sigPreview").src = url;
+    $("sigPreview").style.display = "block";
+    $("sigEmpty").style.display = "none";
+
+    S.stamps.forEach(function(st){
+      if (st.type === "sig"){
+        var im = st.el.querySelector("img");
+        if (im) im.src = url;
+      } else layout(st);
+    });
+  }
+
+  function loadSignatureFile(file){
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function(){ S.rawSig = { img: img, url: url }; processSignature(); toast("Firma cargada."); };
+    img.onerror = function(){ toast("No pude leer esa imagen."); };
+    img.src = url;
+  }
+
+  $("sigBtn").addEventListener("click", function(){ $("sigInput").click(); });
+  $("sigInput").addEventListener("change", function(e){ if (e.target.files[0]) loadSignatureFile(e.target.files[0]); });
+  $("clean").addEventListener("change", processSignature);
+  $("inkSwatches").addEventListener("click", function(ev){
+    var b = ev.target.closest(".sw"); if (!b) return;
+    S.ink = b.dataset.ink;
+    [].forEach.call(this.querySelectorAll(".sw"), function(x){ x.setAttribute("aria-pressed", String(x === b)); });
+    processSignature();
+    S.stamps.forEach(function(st){ if (st.type === "text") layout(st); });
+  });
+
+  document.addEventListener("paste", function(ev){
+    var items = (ev.clipboardData || {}).items || [];
+    for (var i = 0; i < items.length; i++){
+      if (items[i].type && items[i].type.indexOf("image") === 0){
+        var f = items[i].getAsFile();
+        if (f){ loadSignatureFile(f); ev.preventDefault(); return; }
+      }
+    }
+  });
+
+  /* ============================ PDF de entrada ============================ */
+
+  $("pdfBtn").addEventListener("click", function(){ $("pdfInput").click(); });
+  $("pdfInput").addEventListener("change", async function(e){
+    var f = e.target.files[0]; if (!f) return;
+    toast("Abriendo " + f.name + "…", 8000);
+    var buf = await f.arrayBuffer();
+    try {
+      await openPdf(new Uint8Array(buf), f.name, false);
+      toast("PDF abierto: " + f.name);
+    } catch(err){
+      console.error(err);
+      toast("No pude abrir ese PDF (¿protegido con contraseña?).", 5000);
+    }
+  });
+
+  stage.addEventListener("dragover", function(e){ e.preventDefault(); });
+  stage.addEventListener("drop", async function(e){
+    e.preventDefault();
+    var f = e.dataTransfer.files[0]; if (!f) return;
+    if (f.type.indexOf("image") === 0){ loadSignatureFile(f); return; }
+    var buf = await f.arrayBuffer();
+    try { await openPdf(new Uint8Array(buf), f.name, false); toast("PDF abierto: " + f.name); }
+    catch(err){ toast("No pude abrir ese archivo."); }
+  });
+
+  /* ============================ herramienta ============================ */
+
+  function syncToolUI(){
+    [].forEach.call($("toolSeg").querySelectorAll("button"), function(b){
+      b.setAttribute("aria-pressed", String(b.dataset.tool === S.tool));
+    });
+    $("textOpts").hidden = S.tool !== "text";
+    $("dateOpts").hidden = S.tool !== "date";
+  }
+  $("toolSeg").addEventListener("click", function(ev){
+    var b = ev.target.closest("button"); if (!b) return;
+    S.tool = b.dataset.tool; syncToolUI();
+  });
+
+  /* ============================ exportar ============================ */
+
+  function mapToUser(dx, dy, W, H, rot){
+    // dx,dy en unidades de la página mostrada (origen arriba-izquierda)
+    if (rot === 90)  return [dy, dx];
+    if (rot === 180) return [W - dx, dy];
+    if (rot === 270) return [W - dy, H - dx];
+    return [dx, H - dy];
+  }
+
+  function winAnsi(t){
+    // Helvetica estándar sólo admite Latin-1: cambiamos lo demás por un equivalente
+    return String(t).replace(/[^\x20-\x7E\xA0-\xFF]/g, function(ch){
+      var map = { "\u2019":"'", "\u2018":"'", "\u201C":'"', "\u201D":'"', "\u2013":"-", "\u2014":"-", "\u2026":"..." };
+      return map[ch] || "";
+    });
+  }
+
+  async function buildSignedPdf(){
+    var PD = PDFLib.PDFDocument, deg = PDFLib.degrees, rgb = PDFLib.rgb;
+    var doc = await PD.load(S.bytes, { ignoreEncryption: true });
+    var pages = doc.getPages();
+    var png = null, font = null;
+
+    for (var i = 0; i < S.stamps.length; i++){
+      var st = S.stamps[i];
+      var page = pages[st.page];
+      if (!page) continue;
+      var box = (typeof page.getCropBox === "function") ? page.getCropBox() : page.getMediaBox();
+      var W = box.width, H = box.height, x0 = box.x || 0, y0 = box.y || 0;
+      var rot = ((page.getRotation().angle % 360) + 360) % 360;
+      var swap = (rot === 90 || rot === 270);
+      var Wd = swap ? H : W, Hd = swap ? W : H;
+
+      if (st.type === "sig"){
+        if (!png) png = await doc.embedPng(S.sig.bytes);
+        var w = st.w * Wd, h = st.h * Hd;
+        var dx = st.u * Wd, dy = st.v * Hd + h;          // esquina inferior-izquierda mostrada
+        var p = mapToUser(dx, dy, W, H, rot);
+        page.drawImage(png, { x: p[0] + x0, y: p[1] + y0, width: w, height: h, rotate: deg(rot) });
+      } else {
+        if (!font) font = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+        var size = st.size * Hd;
+        var bx = st.u * Wd, by = st.v * Hd + size * 0.82; // línea base
+        var q = mapToUser(bx, by, W, H, rot);
+        var ink = INK[S.ink] || INK.black;
+        page.drawText(winAnsi(st.text), {
+          x: q[0] + x0, y: q[1] + y0, size: size, font: font,
+          color: rgb(ink[0], ink[1], ink[2]), rotate: deg(rot)
+        });
+      }
+    }
+    return await doc.save();
+  }
+
+  $("saveBtn").addEventListener("click", async function(){
+    var btn = this;
+    btn.disabled = true; btn.textContent = "Generando…";
+    try {
+      var out = await buildSignedPdf();
+      var base = S.name.replace(/\.pdf$/i, "");
+      var fname = base + " - FIRMADO.pdf";
+      var blob = new Blob([out], { type: "application/pdf" });
+      download(blob, fname);
+      toast("Descargado: " + fname);
+    } catch(err){
+      console.error(err);
+      toast("No pude generar el PDF: " + (err && err.message ? err.message : "error"), 5000);
+    }
+    btn.textContent = "Descargar PDF firmado";
+    btn.disabled = false;
+  });
+
+  function download(blob, fname){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = fname; a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }
+
+  /* ============================ muestra inicial ============================ */
+
+  function sampleSignaturePng(){
+    var c = document.createElement("canvas");
+    c.width = 460; c.height = 150;
+    var x = c.getContext("2d");
+    x.strokeStyle = "#101418"; x.lineWidth = 5; x.lineCap = "round"; x.lineJoin = "round";
+    x.beginPath();
+    x.moveTo(24, 108);
+    x.bezierCurveTo(60, 20, 88, 132, 118, 74);
+    x.bezierCurveTo(140, 32, 150, 118, 176, 96);
+    x.bezierCurveTo(200, 76, 188, 44, 214, 52);
+    x.bezierCurveTo(244, 62, 226, 116, 258, 104);
+    x.bezierCurveTo(292, 90, 300, 40, 330, 60);
+    x.bezierCurveTo(356, 78, 336, 112, 372, 100);
+    x.bezierCurveTo(398, 92, 414, 74, 436, 82);
+    x.stroke();
+    x.lineWidth = 3;
+    x.beginPath(); x.moveTo(150, 124); x.bezierCurveTo(220, 138, 320, 132, 400, 118); x.stroke();
+    return c.toDataURL("image/png");
+  }
+
+  async function makeSamplePdf(){
+    var PD = PDFLib.PDFDocument, rgb = PDFLib.rgb, SF = PDFLib.StandardFonts;
+    var doc = await PD.create();
+    var page = doc.addPage([612, 792]);
+    var bold = await doc.embedFont(SF.HelveticaBold);
+    var reg = await doc.embedFont(SF.Helvetica);
+    var ink = rgb(0.13, 0.12, 0.11), soft = rgb(0.45, 0.43, 0.40);
+
+    page.drawText("805 MULTISERVICES", { x: 56, y: 726, size: 10, font: bold, color: soft });
+    page.drawText("Autorizacion de servicio", { x: 56, y: 698, size: 19, font: bold, color: ink });
+    page.drawLine({ start: { x: 56, y: 688 }, end: { x: 556, y: 688 }, thickness: 1, color: soft });
+
+    var body = [
+      "Este es un documento de muestra para probar la herramienta. Abre tu propio PDF",
+      "con el boton “Abrir PDF” del panel izquierdo y la muestra se reemplaza.",
+      "",
+      "El cliente autoriza a 805 MultiServices a tramitar el servicio descrito y confirma",
+      "que la informacion proporcionada es correcta."
+    ];
+    var y = 656;
+    body.forEach(function(l){ page.drawText(l, { x: 56, y: y, size: 10.5, font: reg, color: ink }); y -= 17; });
+
+    function sigRow(yy, label){
+      page.drawLine({ start: { x: 56, y: yy }, end: { x: 320, y: yy }, thickness: 0.8, color: soft });
+      page.drawText(label, { x: 56, y: yy - 12, size: 8.5, font: reg, color: soft });
+      page.drawLine({ start: { x: 360, y: yy }, end: { x: 556, y: yy }, thickness: 0.8, color: soft });
+      page.drawText("Date", { x: 360, y: yy - 12, size: 8.5, font: reg, color: soft });
+    }
+    sigRow(520, "Applicant Signature");
+    sigRow(430, "Firma del cliente");
+    sigRow(340, "Producer Signature");
+
+    page.drawText("MUESTRA", { x: 380, y: 120, size: 44, font: bold, color: rgb(0.87, 0.85, 0.82) });
+    return await doc.save();
+  }
+
+  (async function init(){
+    syncToolUI();
+    $("dateValue").value = todayUS();
+    $("sigPreview").style.display = "none";
+    try {
+      var img = new Image();
+      img.onload = function(){ S.rawSig = { img: img }; processSignature(); };
+      img.src = sampleSignaturePng();
+      var bytes = await makeSamplePdf();
+      await openPdf(bytes, "muestra.pdf", true);
+    } catch(err){
+      console.error(err);
+      $("topDoc").textContent = "Abre un PDF para empezar";
+      stage.innerHTML = '<p class="empty-stage">Abre un PDF desde el panel izquierdo para empezar.</p>';
+    }
+  })();
+
+})();
+</script>
+</body>
+</html>
