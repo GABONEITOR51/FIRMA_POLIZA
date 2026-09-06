@@ -882,7 +882,9 @@
   /* ============================ Google Drive ============================ */
 
   var DRIVE = {
-    clientId:  localStorage.getItem("fp_client_id") || "",
+    // El Client ID de OAuth es un identificador publico, no un secreto: lo que
+    // protege el acceso es el origen autorizado + tu propia sesion de Google.
+    clientId:  localStorage.getItem("fp_client_id") || "635469391741-36kpb08t2k0db0qd4kko6ksi4duqq60h.apps.googleusercontent.com",
     folderId:  localStorage.getItem("fp_folder_id") || "1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u",
     filesFolder: localStorage.getItem("fp_files_folder") || "1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE",
     token: null,
@@ -927,7 +929,9 @@
       DRIVE.tokenClient.error_callback = function(err){
         reject(new Error(err && err.type === "popup_closed" ? "Cerraste la ventana de Google." : "Google rechazó la conexión."));
       };
-      DRIVE.tokenClient.requestAccessToken({ prompt: interactive === false ? "" : "consent" });
+      // prompt vacio: si esta cuenta ya autorizo la app, Google no vuelve a
+      // preguntar. La primera vez en cada cuenta si muestra la pantalla.
+      DRIVE.tokenClient.requestAccessToken({ prompt: "" });
     });
   }
 
@@ -1087,7 +1091,7 @@
     dstat("Drive no está conectado: falta crear el OAuth Client ID en Google Cloud y pegarlo aquí abajo.", "err");
     $("cfgClient").focus();
   }
-  if (!DRIVE.clientId) dstat("Drive no está conectado. Ábrelo en “Conexión con Google Drive”.");
+  dstat(DRIVE.clientId ? "Listo para conectar con Google." : "Drive no está conectado. Ábrelo en “Conexión con Google Drive”.");
 
 
   /* ============================ PDF producer desde Drive ============================ */
