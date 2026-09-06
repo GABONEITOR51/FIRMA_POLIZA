@@ -393,9 +393,11 @@
         <button class="btn primary wide" id="saveDriveBtn" disabled>Guardar en AppSheet</button>
         <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
         <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
+        <button class="btn wide" id="verBtn" disabled>Versiones del archivo…</button>
         <div class="row tight">
-          <button class="btn sm" id="clearBtn">Quitar todas las firmas</button>
+          <button class="btn sm" id="clearBtn">Quitar las firmas de esta sesión</button>
         </div>
+        <p class="hint">Ese botón solo quita lo que colocaste ahora. Para deshacer lo que ya se guardó en Drive, usa Versiones.</p>
       </section>
 
     </div>
@@ -411,6 +413,19 @@
     </div>
     <div class="stage" id="stage"></div>
   </main>
+</div>
+
+<div class="modal" id="verModal" hidden>
+  <div class="sheet" style="width:min(620px,100%)">
+    <h3>Versiones del archivo</h3>
+    <p class="hint">Drive conserva cada vez que se sobrescribió este PDF. <b>Abrir</b> la carga aquí sin tocar Drive. <b>Restaurar</b> la vuelve la versión actual del registro en AppSheet.</p>
+    <p class="kv" id="verFile"></p>
+    <ul class="findlist" id="verList" style="max-height:320px"></ul>
+    <div class="padbar">
+      <span style="flex:1"></span>
+      <button class="btn sm" id="verCerrar">Cerrar</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal" id="saveModal" hidden>
@@ -796,6 +811,7 @@
     $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
     $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
     $("saveDriveBtn").disabled = S.stamps.length === 0 || !S.bytes || !S.driveFile;
+    $("verBtn").disabled = !S.driveFile;
     $("saveDriveHint").textContent =
       !S.bytes      ? "Abre primero un documento."
     : !S.driveFile  ? "Este documento no vino de una orden. Ábrelo con el botón de AppSheet o escribiendo el ID de DetalleOrden."
@@ -1651,6 +1667,115 @@
     }
     b.textContent = "Sí, guardar"; b.disabled = false;
   });
+
+  /* ============================ versiones en Drive ============================ */
+
+  async function abrirConservandoOrden(bytes, nombre){
+    var df = S.driveFile;
+    await openPdf(bytes, nombre, false);
+    S.driveFile = df;
+    updateCount();
+  }
+
+  async function listarVersiones(){
+    var r = await gapi("https://www.googleapis.com/drive/v3/files/" + S.driveFile.id
+      + "/revisions?pageSize=200&fields=" + encodeURIComponent("revisions(id,modifiedTime,size)"));
+    var j = await r.json();
+    return j.revisions || [];
+  }
+
+  async function bytesDeVersion(revId){
+    var r = await gapi("https://www.googleapis.com/drive/v3/files/" + S.driveFile.id
+      + "/revisions/" + revId + "?alt=media");
+    return new Uint8Array(await (await r.blob()).arrayBuffer());
+  }
+
+  function pesoMB(n){ return n ? (Math.round(n / 1048576 * 100) / 100) + " MB" : ""; }
+
+  async function pintarVersiones(){
+    var ul = $("verList");
+    ul.innerHTML = '<li><span class="hint" style="padding:6px 8px">Consultando Drive…</span></li>';
+    try {
+      var revs = await listarVersiones();
+      ul.innerHTML = "";
+      if (!revs.length){
+        ul.innerHTML = '<li><span class="hint" style="padding:6px 8px">Drive no reporta versiones anteriores de este archivo.</span></li>';
+        return;
+      }
+      revs.forEach(function(rev, i){
+        var esUltima = (i === revs.length - 1);
+        var etiqueta = "v" + (i + 1) + (i === 0 ? " · original" : "") + (esUltima ? " · actual" : "");
+        var li = document.createElement("li");
+        var fila = document.createElement("div");
+        fila.style.cssText = "display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--line-soft); border-radius:4px";
+
+        var tag = document.createElement("span");
+        tag.className = "pg"; tag.textContent = "v" + (i + 1);
+        var txt = document.createElement("span");
+        txt.className = "lbl"; txt.style.flex = "1";
+        txt.textContent = new Date(rev.modifiedTime).toLocaleString("es-MX") + (rev.size ? " · " + pesoMB(+rev.size) : "")
+                        + (i === 0 ? " · original" : "") + (esUltima ? " · actual" : "");
+
+        var bAbrir = document.createElement("button");
+        bAbrir.className = "btn sm"; bAbrir.textContent = "Abrir";
+        bAbrir.addEventListener("click", async function(){
+          bAbrir.textContent = "Abriendo…"; bAbrir.disabled = true;
+          try {
+            var by = await bytesDeVersion(rev.id);
+            await abrirConservandoOrden(by, S.driveFile.name + " (" + etiqueta + ")");
+            $("verModal").hidden = true;
+            dstat("Abierta " + etiqueta + ". No se ha tocado Drive.", "on");
+          } catch(err){ dstat(err.message, "err"); }
+          bAbrir.textContent = "Abrir"; bAbrir.disabled = false;
+        });
+
+        var bRest = document.createElement("button");
+        bRest.className = "btn sm"; bRest.textContent = "Restaurar";
+        bRest.disabled = esUltima;
+        var armado = false;
+        bRest.addEventListener("click", async function(){
+          if (!armado){
+            armado = true;
+            bRest.textContent = "¿Seguro?";
+            bRest.style.color = "var(--seal)";
+            setTimeout(function(){ if (armado){ armado = false; bRest.textContent = "Restaurar"; bRest.style.color = ""; } }, 5000);
+            return;
+          }
+          armado = false; bRest.disabled = true; bRest.textContent = "Restaurando…";
+          try {
+            var by = await bytesDeVersion(rev.id);
+            await subirADrive(by);
+            await abrirConservandoOrden(by, S.driveFile.name);
+            $("verModal").hidden = true;
+            dstat("Restaurada " + etiqueta + " como versión actual del registro.", "on");
+            toast("Listo: el registro volvió a " + etiqueta + ".");
+          } catch(err){
+            dstat(err.message, "err");
+            toast("No se pudo restaurar: " + (err.message || "error"), 5000);
+          }
+          bRest.textContent = "Restaurar"; bRest.style.color = ""; bRest.disabled = false;
+        });
+
+        fila.appendChild(tag); fila.appendChild(txt); fila.appendChild(bAbrir); fila.appendChild(bRest);
+        li.appendChild(fila); ul.appendChild(li);
+      });
+    } catch(err){
+      ul.innerHTML = "";
+      var li = document.createElement("li");
+      li.innerHTML = '<span class="hint" style="padding:6px 8px"></span>';
+      li.querySelector("span").textContent = err.message || "No se pudieron leer las versiones.";
+      ul.appendChild(li);
+    }
+  }
+
+  $("verBtn").addEventListener("click", function(){
+    if (!S.driveFile){ toast("Abre primero una orden."); return; }
+    $("verFile").textContent = S.driveFile.name;
+    $("verModal").hidden = false;
+    pintarVersiones();
+  });
+  $("verCerrar").addEventListener("click", function(){ $("verModal").hidden = true; });
+  $("verModal").addEventListener("click", function(ev){ if (ev.target === this) $("verModal").hidden = true; });
 
   /* ============================ exportar ============================ */
 
