@@ -101,7 +101,7 @@
     background-size:14px 14px; background-position:0 0, 7px 7px;
     overflow:hidden; padding:6px;
   }
-  .sigbox img{max-width:100%; max-height:100%; object-fit:contain}
+  .sigbox img{width:100%; height:100%; object-fit:contain}
   .sigbox .empty{font-size:12px; color:#8b857b}
 
   .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
@@ -283,6 +283,7 @@
 
         <input type="file" id="sigInput" accept="image/*" hidden>
         <button class="btn wide" id="sigBtn">…o cargar la imagen a mano</button>
+        <p class="hint" id="sigInfo"></p>
         <p class="hint">PNG o JPG. También puedes pegarla con Ctrl+V.</p>
         <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
         <div class="row">
@@ -830,6 +831,46 @@
       ctx.putImageData(d, 0, 0);
     }
 
+    // AppSheet entrega un lienzo grande con el trazo en una esquina; recortamos el
+    // vacío para que el tamaño que eliges sea el de la firma y no el del lienzo.
+    var clean = $("clean").checked;
+    var dd = ctx.getImageData(0, 0, w, h).data;
+    var minX = w, minY = h, maxX = -1, maxY = -1;
+    for (var yy = 0; yy < h; yy++){
+      for (var xx = 0; xx < w; xx++){
+        var q = (yy * w + xx) * 4;
+        var vis;
+        if (clean) vis = dd[q+3] > 16;
+        else {
+          var lm = (dd[q]*0.299 + dd[q+1]*0.587 + dd[q+2]*0.114) / 255;
+          vis = dd[q+3] > 16 && lm < 0.82;
+        }
+        if (vis){
+          if (xx < minX) minX = xx;
+          if (xx > maxX) maxX = xx;
+          if (yy < minY) minY = yy;
+          if (yy > maxY) maxY = yy;
+        }
+      }
+    }
+    var recorte = null;
+    if (maxX >= 0 && (maxX - minX + 1) * (maxY - minY + 1) > 40){
+      var mrg = Math.round(Math.max(maxX - minX, maxY - minY) * 0.04) + 2;
+      var sx = Math.max(0, minX - mrg), sy = Math.max(0, minY - mrg);
+      var ex = Math.min(w, maxX + 1 + mrg), ey = Math.min(h, maxY + 1 + mrg);
+      var cw = ex - sx, ch = ey - sy;
+      if (cw < w * 0.97 || ch < h * 0.97){
+        var c2 = document.createElement("canvas");
+        c2.width = cw; c2.height = ch;
+        c2.getContext("2d").drawImage(c, sx, sy, cw, ch, 0, 0, cw, ch);
+        recorte = [w, h, cw, ch];
+        c = c2; w = cw; h = ch;
+      }
+    }
+    $("sigInfo").textContent = recorte
+      ? ("Recortada de " + recorte[0] + "×" + recorte[1] + " a " + recorte[2] + "×" + recorte[3] + " px")
+      : (w + "×" + h + " px");
+
     var url = c.toDataURL("image/png");
     var b64 = url.split(",")[1];
     var bin = atob(b64);
@@ -903,7 +944,7 @@
     return !!(window.google && google.accounts && google.accounts.oauth2);
   }
 
-  function driveAuth(interactive){
+  function driveAuth(mode){   // mode: "silent" = sin ventana; cualquier otro = con ventana
     return new Promise(function(resolve, reject){
       if (!DRIVE.clientId) { reject(new Error("Falta el OAuth Client ID (ábrelo en “Conexión con Google Drive”).")); return; }
       if (!gisReady())     { reject(new Error("No cargó la librería de Google. Revisa tu conexión.")); return; }
@@ -927,11 +968,14 @@
         }
       };
       DRIVE.tokenClient.error_callback = function(err){
-        reject(new Error(err && err.type === "popup_closed" ? "Cerraste la ventana de Google." : "Google rechazó la conexión."));
+        var ty = err && err.type;
+        if (ty === "popup_closed") reject(new Error("Cerraste la ventana de Google."));
+        else if (ty === "popup_failed_to_open") reject(new Error("Chrome bloqueó la ventana de Google. Permite las ventanas emergentes de este sitio."));
+        else reject(new Error("Google no autorizó" + (ty ? " (" + ty + ")" : "") + "."));
       };
       // prompt vacio: si esta cuenta ya autorizo la app, Google no vuelve a
       // preguntar. La primera vez en cada cuenta si muestra la pantalla.
-      DRIVE.tokenClient.requestAccessToken({ prompt: "" });
+      DRIVE.tokenClient.requestAccessToken({ prompt: mode === "silent" ? "none" : "" });
     });
   }
 
@@ -1265,11 +1309,39 @@
     if (!orden) return;
     S.fromUrl = true;
     $("ordenId").value = orden;
+    function pedirClic(motivo){
+      $("topDoc").textContent = "Orden " + orden;
+      stage.innerHTML = "";
+      var box = document.createElement("div");
+      box.className = "empty-stage";
+      var p = document.createElement("p");
+      p.textContent = motivo || "Google necesita un clic tuyo para abrir su ventana.";
+      var b = document.createElement("button");
+      b.className = "btn primary";
+      b.style.marginTop = "14px";
+      b.textContent = "Traer la orden " + orden;
+      b.addEventListener("click", function(){
+        stage.innerHTML = "";
+        $("topDoc").textContent = "Cargando desde Drive…";
+        traerTodo(orden);
+      });
+      box.appendChild(p); box.appendChild(b);
+      stage.appendChild(box);
+      b.focus();
+    }
+
     var tries = 0;
     (function waitGis(){
-      if (gisReady() && DRIVE.clientId){ traerTodo(orden); return; }
-      if (++tries > 40){ dstat("Configura el Client ID para abrir automáticamente.", "err"); return; }
-      setTimeout(waitGis, 250);
+      if (!gisReady() || !DRIVE.clientId){
+        if (++tries > 40){ pedirClic("No cargó la librería de Google. Revisa tu conexión y vuelve a intentar."); return; }
+        setTimeout(waitGis, 250);
+        return;
+      }
+      driveAuth("silent").then(function(){
+        traerTodo(orden);
+      }).catch(function(){
+        pedirClic("Oprime el botón para autorizar con Google y traer el documento.");
+      });
     })();
   })();
 
