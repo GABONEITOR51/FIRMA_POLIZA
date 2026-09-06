@@ -189,6 +189,7 @@
     padding:10px 12px; border-radius:0 5px 5px 0; font-size:12.5px;
   }
   .kv{font-family:"IBM Plex Mono", monospace; font-size:12px; word-break:break-all}
+
   /* ---------- workspace ---------- */
   .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
   .topbar{
@@ -307,11 +308,8 @@
         <button class="btn sm" id="recentBtn">Ver últimas firmas</button>
         <button class="btn sm" id="lastSigBtn">Usar la última firma</button>
 
-        <input type="file" id="sigInput" accept="image/*" hidden>
         <button class="btn wide" id="drawBtn">Dibujar la firma aquí…</button>
-        <button class="btn wide" id="sigBtn">…o cargar la imagen a mano</button>
         <p class="hint" id="sigInfo"></p>
-        <p class="hint">PNG o JPG. También puedes pegarla con Ctrl+V.</p>
         <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
         <div class="row">
           <span class="hint" style="flex:none">Tinta</span>
@@ -369,7 +367,6 @@
         <p class="hint" id="findMsg">Abre un PDF para buscarlas.</p>
         <ul class="findlist" id="findList"></ul>
         <label class="check"><input type="checkbox" id="withDate" checked> Poner también la fecha al lado</label>
-        <label class="check"><input type="checkbox" id="withProducer"> Firmar también las líneas de Producer</label>
         <button class="btn wide" id="signAll" disabled>Firmar todas las detectadas</button>
       </section>
 
@@ -592,6 +589,7 @@
       else if (DATE_RE.test(o.s)) dates.push(o);
     });
     sigs.forEach(function(o){
+      if (/producer/i.test(o.s)) return;   // esas las firma el agente, no el cliente
       var d = null;
       for (var j = 0; j < dates.length; j++){
         if (Math.abs(dates[j].y - o.y) < o.h * 0.7 && dates[j].x > o.x) {
@@ -628,13 +626,7 @@
       var b = document.createElement("button");
       b.innerHTML = '<span class="pg">p.' + (f.page + 1) + '</span><span class="lbl"></span>';
       b.querySelector(".lbl").textContent = f.label;
-      if (f.producer){
-        var pr = document.createElement("span");
-        pr.className = "done"; pr.style.color = "var(--muted)"; pr.textContent = "productor";
-        b.appendChild(pr);
-      } else if (f.used){
-        var ok = document.createElement("span"); ok.className = "done"; ok.textContent = "✓"; b.appendChild(ok);
-      }
+      if (f.used){ var ok = document.createElement("span"); ok.className = "done"; ok.textContent = "✓"; b.appendChild(ok); }
       b.addEventListener("click", function(){
         S.pages[f.page].wrap.scrollIntoView({ behavior:"smooth", block:"center" });
         flashMarker(f);
@@ -841,10 +833,8 @@
     var withDate = $("withDate").checked;
     var n = 0;
     var prevTool = S.tool;
-    var incProd = $("withProducer").checked;
     var skipped = 0;
     S.finds.forEach(function(f){
-      if (f.producer && !incProd){ skipped++; return; }
       var pg = S.pages[f.page];
       var sigW = 0.22;
       var hRatio = sigW * (S.sig.h / S.sig.w) * (pg.dispW / pg.dispH);
@@ -991,8 +981,6 @@
     img.src = url;
   }
 
-  $("sigBtn").addEventListener("click", function(){ $("sigInput").click(); });
-  $("sigInput").addEventListener("change", function(e){ if (e.target.files[0]) loadSignatureFile(e.target.files[0]); });
   $("clean").addEventListener("change", processSignature);
   $("inkSwatches").addEventListener("click", function(ev){
     var b = ev.target.closest(".sw"); if (!b) return;
@@ -1000,16 +988,6 @@
     [].forEach.call(this.querySelectorAll(".sw"), function(x){ x.setAttribute("aria-pressed", String(x === b)); });
     processSignature();
     S.stamps.forEach(function(st){ if (st.type === "text") layout(st); });
-  });
-
-  document.addEventListener("paste", function(ev){
-    var items = (ev.clipboardData || {}).items || [];
-    for (var i = 0; i < items.length; i++){
-      if (items[i].type && items[i].type.indexOf("image") === 0){
-        var f = items[i].getAsFile();
-        if (f){ loadSignatureFile(f); ev.preventDefault(); return; }
-      }
-    }
   });
 
 
@@ -1061,13 +1039,13 @@
         }
       };
       DRIVE.tokenClient.error_callback = function(err){
-        var ty = err && err.type;
-        if (ty === "popup_closed") reject(new Error("Cerraste la ventana de Google."));
-        else if (ty === "popup_failed_to_open") reject(new Error("Chrome bloqueó la ventana de Google. Permite las ventanas emergentes de este sitio."));
-        else reject(new Error("Google no autorizó" + (ty ? " (" + ty + ")" : "") + "."));
+        var t = err && err.type;
+        if (t === "popup_closed")        reject(new Error("Cerraste la ventana de Google."));
+        else if (t === "popup_failed_to_open") reject(new Error("Chrome bloqueó la ventana de Google. Permite las ventanas emergentes de este sitio."));
+        else reject(new Error("Google no autorizó" + (t ? " (" + t + ")" : "") + "."));
       };
-      // prompt vacio: si esta cuenta ya autorizo la app, Google no vuelve a
-      // preguntar. La primera vez en cada cuenta si muestra la pantalla.
+      // "none" no abre ninguna ventana: solo sirve si la cuenta ya autorizo y
+      // tiene sesion activa. "" abre la ventana, y eso exige un clic del usuario.
       DRIVE.tokenClient.requestAccessToken({ prompt: mode === "silent" ? "none" : "" });
     });
   }
@@ -1240,6 +1218,7 @@
       var oid = ($("ordenId").value || "").trim();
       if (oid) localStorage.setItem("fp_sig_" + oid, url);
     } catch(e){
+      // si se llenó el almacenamiento, tiramos las firmas por orden y dejamos solo la última
       try {
         Object.keys(localStorage).forEach(function(k){
           if (k.indexOf("fp_sig_") === 0) localStorage.removeItem(k);
@@ -1458,6 +1437,7 @@
     if (!orden) return;
     S.fromUrl = true;
     $("ordenId").value = orden;
+
     function pedirClic(motivo){
       $("topDoc").textContent = "Orden " + orden;
       stage.innerHTML = "";
@@ -1486,6 +1466,7 @@
         setTimeout(waitGis, 250);
         return;
       }
+      // primero sin ventana; si la sesión de Google no alcanza, pedimos el clic
       driveAuth("silent").then(function(){
         traerTodo(orden);
       }).catch(function(){
@@ -1595,7 +1576,6 @@
   stage.addEventListener("drop", async function(e){
     e.preventDefault();
     var f = e.dataTransfer.files[0]; if (!f) return;
-    if (f.type.indexOf("image") === 0){ loadSignatureFile(f); return; }
     var buf = await f.arrayBuffer();
     try { await openPdf(new Uint8Array(buf), f.name, false); toast("PDF abierto: " + f.name); }
     catch(err){ toast("No pude abrir ese archivo."); }
