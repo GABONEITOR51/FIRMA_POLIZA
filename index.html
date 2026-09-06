@@ -305,6 +305,7 @@
         <div class="status" id="driveStatus"><span class="dot"></span><span id="driveMsg">Drive sin conectar</span></div>
         <div class="recent" id="driveRecent"></div>
         <button class="btn sm" id="recentBtn">Ver últimas firmas</button>
+        <button class="btn sm" id="lastSigBtn">Usar la última firma</button>
 
         <input type="file" id="sigInput" accept="image/*" hidden>
         <button class="btn wide" id="drawBtn">Dibujar la firma aquí…</button>
@@ -953,6 +954,7 @@
     for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
 
     S.sig = { bytes: bytes, url: url, w: w, h: h };
+    recordarFirma(url);
     $("sigPreview").src = url;
     $("sigPreview").style.display = "block";
     $("sigEmpty").style.display = "none";
@@ -1056,11 +1058,12 @@
 
   async function gapi(url){
     var tok = await driveAuth();
-    var r = await fetch(url, { headers: { Authorization: "Bearer " + tok } });
+    var op = { headers: { Authorization: "Bearer " + tok }, cache: "no-store" };
+    var r = await fetch(url, op);
     if (r.status === 401){
       DRIVE.token = null;
-      tok = await driveAuth();
-      r = await fetch(url, { headers: { Authorization: "Bearer " + tok } });
+      op.headers.Authorization = "Bearer " + (await driveAuth());
+      r = await fetch(url, op);
     }
     if (!r.ok) throw new Error("Drive respondió " + r.status);
     return r;
@@ -1213,6 +1216,50 @@
   dstat(DRIVE.clientId ? "Listo para conectar con Google." : "Drive no está conectado. Ábrelo en “Conexión con Google Drive”.");
 
 
+  /* ============================ memoria de la última firma ============================ */
+
+  function recordarFirma(url){
+    try {
+      localStorage.setItem("fp_last_sig", url);
+      var oid = ($("ordenId").value || "").trim();
+      if (oid) localStorage.setItem("fp_sig_" + oid, url);
+    } catch(e){
+      try {
+        Object.keys(localStorage).forEach(function(k){
+          if (k.indexOf("fp_sig_") === 0) localStorage.removeItem(k);
+        });
+        localStorage.setItem("fp_last_sig", url);
+      } catch(e2){}
+    }
+  }
+
+  function firmaGuardada(oid){
+    try {
+      return (oid && localStorage.getItem("fp_sig_" + oid)) || localStorage.getItem("fp_last_sig");
+    } catch(e){ return null; }
+  }
+
+  function usarFirmaGuardada(url){
+    return new Promise(function(res, rej){
+      var img = new Image();
+      img.onload = function(){ S.rawSig = { img: img }; processSignature(); res(); };
+      img.onerror = function(){ rej(new Error("La firma guardada no se pudo leer.")); };
+      img.src = url;
+    });
+  }
+
+  $("lastSigBtn").addEventListener("click", async function(){
+    var oid = ($("ordenId").value || "").trim();
+    var propia = false;
+    try { propia = !!(oid && localStorage.getItem("fp_sig_" + oid)); } catch(e){}
+    var url = firmaGuardada(oid);
+    if (!url){ toast("Todavía no hay ninguna firma guardada en este navegador."); return; }
+    try {
+      await usarFirmaGuardada(url);
+      dstat(propia ? ("Firma recuperada de la orden " + oid) : "Última firma usada", "on");
+    } catch(err){ dstat(err.message, "err"); }
+  });
+
   /* ============================ PDF producer desde Drive ============================ */
 
   async function fetchProducerById(id){
@@ -1244,6 +1291,15 @@
       var pdf = await fetchProducerById(id);
       dstat("PDF: " + pdf.name + " — buscando firma…");
       await fetchSignatureById(id);
+      if (!S.sig){
+        var guardada = firmaGuardada(id);
+        if (guardada){
+          try {
+            await usarFirmaGuardada(guardada);
+            dstat("No había firma en Drive para " + id + ": usé la última guardada en este navegador.", "err");
+          } catch(e){}
+        }
+      }
       var tplName = localStorage.getItem("fp_tpl_default");
       if (tplName && TPL.all()[tplName]) applyTemplate(tplName);
     } catch(err){
