@@ -184,6 +184,11 @@
     letter-spacing:.06em; text-transform:uppercase; pointer-events:none;
   }
   .padbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .warn{
+    background:var(--seal-soft); border-left:3px solid var(--seal);
+    padding:10px 12px; border-radius:0 5px 5px 0; font-size:12.5px;
+  }
+  .kv{font-family:"IBM Plex Mono", monospace; font-size:12px; word-break:break-all}
   /* ---------- workspace ---------- */
   .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
   .topbar{
@@ -384,7 +389,9 @@
 
       <section class="blk">
         <h2><span class="num">6</span> Guardar</h2>
-        <button class="btn primary wide" id="saveBtn" disabled>Descargar PDF firmado</button>
+        <button class="btn primary wide" id="saveDriveBtn" disabled>Guardar en AppSheet</button>
+        <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
+        <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
         <div class="row tight">
           <button class="btn sm" id="clearBtn">Quitar todas las firmas</button>
         </div>
@@ -403,6 +410,21 @@
     </div>
     <div class="stage" id="stage"></div>
   </main>
+</div>
+
+<div class="modal" id="saveModal" hidden>
+  <div class="sheet" style="width:min(560px,100%)">
+    <h3>Guardar en AppSheet</h3>
+    <p class="hint">Se va a reemplazar el contenido de este archivo en Drive:</p>
+    <p class="kv" id="saveFile"></p>
+    <p class="hint" id="saveDetail"></p>
+    <div class="warn">El registro de AppSheet ya apunta a ese archivo, así que ahí verás el firmado. La versión sin firmar queda en el historial de Drive: clic derecho sobre el archivo → <b>Gestionar versiones</b> (Drive la conserva 30 días).</div>
+    <div class="padbar">
+      <span style="flex:1"></span>
+      <button class="btn sm" id="saveCancel">Cancelar</button>
+      <button class="btn primary" id="saveOk">Sí, guardar</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal" id="drawModal" hidden>
@@ -482,7 +504,7 @@
     S.bytes = bytes;
     S.name = name;
     S.isSample = !!isSample;
-    S.stamps = []; S.finds = []; S.sel = null; ANCHOR_N = {};
+    S.stamps = []; S.finds = []; S.sel = null; ANCHOR_N = {}; S.driveFile = null;
     stage.innerHTML = "";
     S.pages = [];
 
@@ -772,6 +794,7 @@
   function updateCount(){
     $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
     $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
+    $("saveDriveBtn").disabled = S.stamps.length === 0 || !S.bytes || !S.driveFile;
   }
 
   document.addEventListener("keydown", function(ev){
@@ -979,7 +1002,7 @@
     tokenClient: null,
     recentUrls: []
   };
-  var SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+  var SCOPE = "https://www.googleapis.com/auth/drive";
 
   function dstat(msg, kind){
     var el = $("driveStatus");
@@ -1203,6 +1226,8 @@
     var blob = await driveBlob(f.id);
     var buf = await blob.arrayBuffer();
     await openPdf(new Uint8Array(buf), f.name, false);
+    S.driveFile = { id: f.id, name: f.name };
+    $("saveDriveBtn").disabled = !S.stamps.length;
     return f;
   }
 
@@ -1511,6 +1536,59 @@
   $("toolSeg").addEventListener("click", function(ev){
     var b = ev.target.closest("button"); if (!b) return;
     S.tool = b.dataset.tool; syncToolUI();
+  });
+
+  /* ============================ guardar en Drive ============================ */
+
+  async function subirADrive(bytes){
+    var tok = await driveAuth();
+    var url = "https://www.googleapis.com/upload/drive/v3/files/" + S.driveFile.id
+            + "?uploadType=media&fields=id,name,modifiedTime";
+    var opts = {
+      method: "PATCH",
+      headers: { Authorization: "Bearer " + tok, "Content-Type": "application/pdf" },
+      body: bytes
+    };
+    var r = await fetch(url, opts);
+    if (r.status === 401){
+      DRIVE.token = null;
+      opts.headers.Authorization = "Bearer " + (await driveAuth());
+      r = await fetch(url, opts);
+    }
+    if (!r.ok){
+      var txt = "";
+      try { txt = (await r.json()).error.message; } catch(e){}
+      throw new Error("Drive respondió " + r.status + (txt ? ": " + txt : ""));
+    }
+    return await r.json();
+  }
+
+  $("saveDriveBtn").addEventListener("click", function(){
+    if (!S.driveFile){ toast("Este documento no vino de una orden de AppSheet."); return; }
+    var firmas = S.stamps.filter(function(x){ return x.type === "sig"; }).length;
+    var textos = S.stamps.length - firmas;
+    $("saveFile").textContent = S.driveFile.name;
+    $("saveDetail").textContent = S.pages.length + " páginas · " + firmas + " firma(s) y " + textos + " texto(s) colocados.";
+    $("saveModal").hidden = false;
+  });
+  $("saveCancel").addEventListener("click", function(){ $("saveModal").hidden = true; });
+  $("saveModal").addEventListener("click", function(ev){ if (ev.target === this) $("saveModal").hidden = true; });
+
+  $("saveOk").addEventListener("click", async function(){
+    var b = this;
+    b.disabled = true; b.textContent = "Guardando…";
+    try {
+      var out = await buildSignedPdf();
+      var res = await subirADrive(out);
+      $("saveModal").hidden = true;
+      dstat("Guardado en Drive: " + res.name, "on");
+      $("saveDriveHint").textContent = "Guardado. Abre el registro en AppSheet para verlo.";
+      toast("Guardado en el registro. El PDF del cliente ya está firmado.");
+    } catch(err){
+      dstat(err.message || "No se pudo guardar", "err");
+      toast("No se pudo guardar: " + (err.message || "error"), 5000);
+    }
+    b.textContent = "Sí, guardar"; b.disabled = false;
   });
 
   /* ============================ exportar ============================ */
