@@ -795,6 +795,11 @@
     $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
     $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
     $("saveDriveBtn").disabled = S.stamps.length === 0 || !S.bytes || !S.driveFile;
+    $("saveDriveHint").textContent =
+      !S.bytes      ? "Abre primero un documento."
+    : !S.driveFile  ? "Este documento no vino de una orden. Ábrelo con el botón de AppSheet o escribiendo el ID de DetalleOrden."
+    : !S.stamps.length ? "Falta colocar la firma: toca el documento donde va."
+    : "Listo. Se guardará sobre " + S.driveFile.name;
   }
 
   document.addEventListener("keydown", function(ev){
