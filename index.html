@@ -164,6 +164,26 @@
   .recent img{height:34px; width:100%; object-fit:contain}
   .recent .rid{font-family:"IBM Plex Mono", monospace; font-size:10px; color:#4a4640}
 
+
+  /* ---------- pad para dibujar la firma ---------- */
+  .modal{
+    position:fixed; inset:0; background:rgba(22,20,18,.62); z-index:50;
+    display:grid; place-items:center; padding:18px;
+  }
+  .sheet{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 18px 50px rgba(0,0,0,.35); width:min(940px,100%);
+    padding:18px; display:flex; flex-direction:column; gap:12px;
+  }
+  .sheet h3{margin:0; font-size:16px; font-weight:600; letter-spacing:-.01em}
+  .padwrap{position:relative; background:#fff; border:1px solid var(--line); border-radius:6px; overflow:hidden}
+  #pad{display:block; width:100%; height:auto; touch-action:none; cursor:crosshair}
+  .padline{position:absolute; left:6%; right:6%; bottom:24%; border-bottom:1px dashed #cbc6bd; pointer-events:none}
+  .padtag{
+    position:absolute; left:6%; bottom:calc(24% - 19px); font-size:11px; color:#aca69d;
+    letter-spacing:.06em; text-transform:uppercase; pointer-events:none;
+  }
+  .padbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
   /* ---------- workspace ---------- */
   .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
   .topbar{
@@ -282,6 +302,7 @@
         <button class="btn sm" id="recentBtn">Ver últimas firmas</button>
 
         <input type="file" id="sigInput" accept="image/*" hidden>
+        <button class="btn wide" id="drawBtn">Dibujar la firma aquí…</button>
         <button class="btn wide" id="sigBtn">…o cargar la imagen a mano</button>
         <p class="hint" id="sigInfo"></p>
         <p class="hint">PNG o JPG. También puedes pegarla con Ctrl+V.</p>
@@ -382,6 +403,27 @@
     </div>
     <div class="stage" id="stage"></div>
   </main>
+</div>
+
+<div class="modal" id="drawModal" hidden>
+  <div class="sheet">
+    <h3>Firma del cliente</h3>
+    <p class="hint">Firma con el dedo, el mouse o un lápiz. Procura no salirte de la raya y no pegarte a los bordes.</p>
+    <div class="padwrap">
+      <canvas id="pad" width="1800" height="600"></canvas>
+      <div class="padline"></div>
+      <span class="padtag">firma aquí</span>
+    </div>
+    <div class="padbar">
+      <span class="hint" style="flex:none">Grosor</span>
+      <input type="range" id="padW" min="2" max="10" value="5" style="max-width:150px">
+      <span style="flex:1"></span>
+      <button class="btn sm" id="padUndo">Deshacer</button>
+      <button class="btn sm" id="padClear">Borrar</button>
+      <button class="btn sm" id="padCancel">Cancelar</button>
+      <button class="btn primary" id="padUse">Usar esta firma</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1348,6 +1390,87 @@
         pedirClic("Oprime el botón para autorizar con Google y traer el documento.");
       });
     })();
+  })();
+
+
+  /* ============================ dibujar la firma ============================ */
+
+  var PAD = { strokes: [], cur: null };
+
+  function padRedraw(){
+    var c = $("pad"), x = c.getContext("2d");
+    x.clearRect(0, 0, c.width, c.height);
+    x.lineCap = "round"; x.lineJoin = "round"; x.strokeStyle = "#0f1418";
+    PAD.strokes.forEach(function(s){
+      x.lineWidth = s.w;
+      x.beginPath();
+      if (s.p.length === 1){
+        x.arc(s.p[0][0], s.p[0][1], s.w / 2, 0, Math.PI * 2);
+        x.fillStyle = "#0f1418"; x.fill();
+        return;
+      }
+      x.moveTo(s.p[0][0], s.p[0][1]);
+      for (var i = 1; i < s.p.length; i++){
+        var q = s.p[i-1], p = s.p[i];
+        x.quadraticCurveTo(q[0], q[1], (q[0]+p[0])/2, (q[1]+p[1])/2);
+      }
+      x.stroke();
+    });
+  }
+
+  function padPos(ev){
+    var c = $("pad"), r = c.getBoundingClientRect();
+    return [ (ev.clientX - r.left) * (c.width / r.width),
+             (ev.clientY - r.top)  * (c.height / r.height) ];
+  }
+
+  function abrirPad(){
+    PAD.strokes = []; PAD.cur = null;
+    $("drawModal").hidden = false;
+    padRedraw();
+  }
+  function cerrarPad(){ $("drawModal").hidden = true; }
+
+  (function initPad(){
+    var c = $("pad");
+    c.addEventListener("pointerdown", function(ev){
+      ev.preventDefault();
+      c.setPointerCapture(ev.pointerId);
+      PAD.cur = { w: parseInt($("padW").value, 10) * 2, p: [padPos(ev)] };
+      PAD.strokes.push(PAD.cur);
+      padRedraw();
+    });
+    c.addEventListener("pointermove", function(ev){
+      if (!PAD.cur) return;
+      ev.preventDefault();
+      PAD.cur.p.push(padPos(ev));
+      padRedraw();
+    });
+    function fin(){ PAD.cur = null; }
+    c.addEventListener("pointerup", fin);
+    c.addEventListener("pointercancel", fin);
+    c.addEventListener("pointerleave", fin);
+
+    $("drawBtn").addEventListener("click", abrirPad);
+    $("padCancel").addEventListener("click", cerrarPad);
+    $("padClear").addEventListener("click", function(){ PAD.strokes = []; PAD.cur = null; padRedraw(); });
+    $("padUndo").addEventListener("click", function(){ PAD.strokes.pop(); PAD.cur = null; padRedraw(); });
+    $("drawModal").addEventListener("click", function(ev){ if (ev.target === this) cerrarPad(); });
+    document.addEventListener("keydown", function(ev){
+      if (ev.key === "Escape" && !$("drawModal").hidden) cerrarPad();
+    });
+
+    $("padUse").addEventListener("click", function(){
+      if (!PAD.strokes.length){ toast("Dibuja la firma antes de usarla."); return; }
+      var img = new Image();
+      img.onload = function(){
+        S.rawSig = { img: img };
+        processSignature();
+        cerrarPad();
+        toast("Firma capturada.");
+      };
+      img.src = $("pad").toDataURL("image/png");
+    });
   })();
 
   /* ============================ PDF de entrada ============================ */
