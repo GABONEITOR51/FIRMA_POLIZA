@@ -833,7 +833,7 @@
 
     // AppSheet entrega un lienzo grande con el trazo en una esquina; recortamos el
     // vacío para que el tamaño que eliges sea el de la firma y no el del lienzo.
-    var clean = $("clean").checked;
+    var clean = $("clean").checked, ow = w, oh = h;
     var dd = ctx.getImageData(0, 0, w, h).data;
     var minX = w, minY = h, maxX = -1, maxY = -1;
     for (var yy = 0; yy < h; yy++){
@@ -867,9 +867,14 @@
         c = c2; w = cw; h = ch;
       }
     }
-    $("sigInfo").textContent = recorte
+    // si el trazo llega al borde del archivo original, viene cortado de origen
+    var toca = (maxX >= 0) && (minX <= 0 || minY <= 0 || maxX >= ow - 1 || maxY >= oh - 1);
+    var txtInfo = recorte
       ? ("Recortada de " + recorte[0] + "×" + recorte[1] + " a " + recorte[2] + "×" + recorte[3] + " px")
       : (w + "×" + h + " px");
+    $("sigInfo").textContent = txtInfo;
+    $("sigInfo").style.color = toca ? "var(--seal)" : "var(--muted)";
+    if (toca) $("sigInfo").textContent = txtInfo + " · El trazo toca el borde del archivo: la firma se capturó cortada en AppSheet.";
 
     var url = c.toDataURL("image/png");
     var b64 = url.split(",")[1];
