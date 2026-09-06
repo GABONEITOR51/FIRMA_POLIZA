@@ -313,6 +313,8 @@
               <button class="btn sm" id="cfgSave">Guardar</button>
               <button class="btn sm" id="connectBtn">Conectar con Google</button>
             </div>
+            <p class="hint">Registra este origen en Google Cloud → Credentials → tu OAuth client → <em>Authorized JavaScript origins</em>:</p>
+            <p class="hint mono" id="originHint" style="word-break:break-all; color:var(--accent)"></p>
             <p class="hint">Se guarda solo en este navegador. El acceso a Drive es de solo lectura y el token vive en memoria: al cerrar la pestaña se pierde.</p>
           </div>
         </details>
@@ -1063,12 +1065,29 @@
       dstat("Conectado: " + who, "on");
     } catch(err){ dstat(err.message, "err"); }
   });
-  $("fetchBtn").addEventListener("click", function(){ traerTodo($("ordenId").value); });
-  $("ordenId").addEventListener("keydown", function(ev){
-    if (ev.key === "Enter"){ ev.preventDefault(); traerTodo(this.value); }
+  $("fetchBtn").addEventListener("click", function(){
+    if (!DRIVE.clientId) return pedirConfig();
+    traerTodo($("ordenId").value);
   });
-  $("recentBtn").addEventListener("click", showRecent);
-  if (!DRIVE.clientId) dstat("Falta configurar el Client ID de Google.");
+  $("ordenId").addEventListener("keydown", function(ev){
+    if (ev.key === "Enter"){
+      ev.preventDefault();
+      if (!DRIVE.clientId) return pedirConfig();
+      traerTodo(this.value);
+    }
+  });
+  $("recentBtn").addEventListener("click", function(){
+    if (!DRIVE.clientId) return pedirConfig();
+    showRecent();
+  });
+  $("originHint").textContent = location.origin;
+  function pedirConfig(){
+    var d = document.querySelector("details.cfg");
+    if (d) d.open = true;
+    dstat("Drive no está conectado: falta crear el OAuth Client ID en Google Cloud y pegarlo aquí abajo.", "err");
+    $("cfgClient").focus();
+  }
+  if (!DRIVE.clientId) dstat("Drive no está conectado. Ábrelo en “Conexión con Google Drive”.");
 
 
   /* ============================ PDF producer desde Drive ============================ */
