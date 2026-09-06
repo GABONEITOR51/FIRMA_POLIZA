@@ -11,6 +11,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --bg:#e8e6e1; --panel:#fbfaf8; --panel-2:#f1efeb; --line:#d7d3cb; --line-soft:#e5e1d9;
@@ -138,6 +139,31 @@
   .findlist .lbl{color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .findlist .done{color:var(--ok); font-size:11px; margin-left:auto; flex:none}
 
+
+  /* ---------- bloque Drive ---------- */
+  .drivebar{display:flex; gap:6px}
+  .drivebar input{flex:1; min-width:0; font-family:"IBM Plex Mono", monospace; letter-spacing:.02em}
+  .drivebar .btn{flex:none}
+  .status{font-size:11.5px; display:flex; align-items:center; gap:6px; color:var(--muted); min-height:16px}
+  .status .dot{width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none}
+  .status.on .dot{background:var(--ok)}
+  .status.err{color:var(--seal)} .status.err .dot{background:var(--seal)}
+  details.cfg{border-top:1px dashed var(--line); padding-top:9px}
+  details.cfg summary{font-size:12px; color:var(--muted); cursor:pointer; list-style:none}
+  details.cfg summary::-webkit-details-marker{display:none}
+  details.cfg summary::before{content:"▸ "; }
+  details.cfg[open] summary::before{content:"▾ "; }
+  details.cfg .cfgbody{display:flex; flex-direction:column; gap:8px; padding-top:9px}
+  details.cfg label{font-size:11px; color:var(--muted); display:block; margin-bottom:3px}
+  .recent{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  .recent button{
+    padding:4px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+  }
+  .recent button:hover{border-color:var(--accent)}
+  .recent img{height:34px; width:100%; object-fit:contain}
+  .recent .rid{font-family:"IBM Plex Mono", monospace; font-size:10px; color:#4a4640}
+
   /* ---------- workspace ---------- */
   .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
   .topbar{
@@ -247,8 +273,16 @@
       <section class="blk">
         <h2><span class="num">2</span> Firma</h2>
         <div class="sigbox"><img id="sigPreview" alt="Firma cargada" style="display:none"><span class="empty" id="sigEmpty">sin firma</span></div>
+        <div class="drivebar">
+          <input type="text" id="ordenId" placeholder="ID de DetalleOrden (613bb031)"  autocomplete="off" spellcheck="false">
+          <button class="btn" id="fetchBtn">Traer todo</button>
+        </div>
+        <div class="status" id="driveStatus"><span class="dot"></span><span id="driveMsg">Drive sin conectar</span></div>
+        <div class="recent" id="driveRecent"></div>
+        <button class="btn sm" id="recentBtn">Ver últimas firmas</button>
+
         <input type="file" id="sigInput" accept="image/*" hidden>
-        <button class="btn wide" id="sigBtn">Cargar imagen de la firma…</button>
+        <button class="btn wide" id="sigBtn">…o cargar la imagen a mano</button>
         <p class="hint">PNG o JPG. También puedes pegarla con Ctrl+V.</p>
         <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
         <div class="row">
@@ -259,6 +293,29 @@
             <button class="sw" data-ink="orig" style="background:linear-gradient(135deg,#888 50%,#ccc 50%)" aria-pressed="false" title="Original"></button>
           </div>
         </div>
+
+        <details class="cfg">
+          <summary>Conexión con Google Drive</summary>
+          <div class="cfgbody">
+            <div>
+              <label for="cfgClient">OAuth Client ID</label>
+              <input type="text" id="cfgClient" placeholder="000000-xxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div>
+              <label for="cfgFolder">Carpeta DetalleOrden_Images (firmas)</label>
+              <input type="text" id="cfgFolder" value="1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u" autocomplete="off" spellcheck="false">
+            </div>
+            <div>
+              <label for="cfgFiles">Carpeta DetalleOrden_Files_ (PDFs producer)</label>
+              <input type="text" id="cfgFiles" value="1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="row tight">
+              <button class="btn sm" id="cfgSave">Guardar</button>
+              <button class="btn sm" id="connectBtn">Conectar con Google</button>
+            </div>
+            <p class="hint">Se guarda solo en este navegador. El acceso a Drive es de solo lectura y el token vive en memoria: al cerrar la pestaña se pierde.</p>
+          </div>
+        </details>
       </section>
 
       <section class="blk">
@@ -282,11 +339,27 @@
         <p class="hint" id="findMsg">Abre un PDF para buscarlas.</p>
         <ul class="findlist" id="findList"></ul>
         <label class="check"><input type="checkbox" id="withDate" checked> Poner también la fecha al lado</label>
+        <label class="check"><input type="checkbox" id="withProducer"> Firmar también las líneas de Producer</label>
         <button class="btn wide" id="signAll" disabled>Firmar todas las detectadas</button>
       </section>
 
       <section class="blk">
-        <h2><span class="num">5</span> Guardar</h2>
+        <h2><span class="num">5</span> Plantillas</h2>
+        <p class="hint">Acomoda las firmas una vez en un paquete de una compañía y guárdalo. Las posiciones se anclan a la etiqueta de cada línea, así que siguen cayendo bien aunque el paquete traiga más o menos páginas.</p>
+        <div class="drivebar">
+          <input type="text" id="tplName" placeholder="Nombre (National General)" autocomplete="off">
+          <button class="btn" id="tplSave">Guardar</button>
+        </div>
+        <ul class="findlist" id="tplList"></ul>
+        <div class="row tight">
+          <button class="btn sm" id="tplExport">Exportar</button>
+          <button class="btn sm" id="tplImportBtn">Importar</button>
+          <input type="file" id="tplImport" accept="application/json,.json" hidden>
+        </div>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">6</span> Guardar</h2>
         <button class="btn primary wide" id="saveBtn" disabled>Descargar PDF firmado</button>
         <div class="row tight">
           <button class="btn sm" id="clearBtn">Quitar todas las firmas</button>
@@ -364,7 +437,7 @@
     S.bytes = bytes;
     S.name = name;
     S.isSample = !!isSample;
-    S.stamps = []; S.finds = []; S.sel = null;
+    S.stamps = []; S.finds = []; S.sel = null; ANCHOR_N = {};
     stage.innerHTML = "";
     S.pages = [];
 
@@ -416,6 +489,7 @@
 
   var SIG_RE = /^(?:x\s*)?(?:[a-zA-Zá-úÁ-Ú'’.\-]+\s+){0,3}(signature|signatures|firma)(?:\s+(?:of|de|del)\s+[a-zA-Zá-úÁ-Ú ]{0,14})?[\s:._]*$/i;
   var DATE_RE = /^(date|fecha)[\s:._]*$/i;
+  var ANCHOR_N = {};
 
   async function detectOnPage(page, vp, pageIndex){
     var tc;
@@ -427,7 +501,7 @@
       if (!raw) continue;
       var m = pdfjsLib.Util.transform(vp.transform, it.transform);
       var h = Math.hypot(m[2], m[3]) || 10;
-      items.push({ s: raw, x: m[4], y: m[5], h: h });
+      items.push({ s: raw, x: m[4], y: m[5], h: h, w: (it.width || 0) });
     }
     var sigs = [], dates = [];
     items.forEach(function(o){
@@ -441,10 +515,19 @@
           if (!d || dates[j].x < d.x) d = dates[j];
         }
       }
+      var norm = o.s.toLowerCase().replace(/[^a-z]/g, "");
+      ANCHOR_N[norm] = (ANCHOR_N[norm] || 0) + 1;
       S.finds.push({
+        key: norm + "#" + ANCHOR_N[norm],
         page: pageIndex, label: o.s,
-        u: o.x / vp.width, v: o.y / vp.height, h: o.h / vp.height,
-        dateU: d ? d.x / vp.width : null, dateV: d ? d.y / vp.height : null,
+        u: o.x / vp.width, u1: (o.x + o.w) / vp.width,
+        v: o.y / vp.height, h: o.h / vp.height,
+        inline: /:\s*$/.test(o.s),
+        producer: /producer/i.test(o.s),
+        dateU: d ? d.x / vp.width : null,
+        dateU1: d ? (d.x + d.w) / vp.width : null,
+        dateV: d ? d.y / vp.height : null,
+        dateInline: d ? /:\s*$/.test(d.s) : false,
         used: false
       });
     });
@@ -462,7 +545,13 @@
       var b = document.createElement("button");
       b.innerHTML = '<span class="pg">p.' + (f.page + 1) + '</span><span class="lbl"></span>';
       b.querySelector(".lbl").textContent = f.label;
-      if (f.used){ var ok = document.createElement("span"); ok.className = "done"; ok.textContent = "✓"; b.appendChild(ok); }
+      if (f.producer){
+        var pr = document.createElement("span");
+        pr.className = "done"; pr.style.color = "var(--muted)"; pr.textContent = "productor";
+        b.appendChild(pr);
+      } else if (f.used){
+        var ok = document.createElement("span"); ok.className = "done"; ok.textContent = "✓"; b.appendChild(ok);
+      }
       b.addEventListener("click", function(){
         S.pages[f.page].wrap.scrollIntoView({ behavior:"smooth", block:"center" });
         flashMarker(f);
@@ -506,7 +595,7 @@
     } else {
       var txt = S.tool === "date" ? ($("dateValue").value || todayUS()) : ($("textValue").value || "");
       if (!txt.trim()){ toast("Escribe el texto antes de colocarlo."); return null; }
-      st = { type:"text", text:txt, size: opts.size || 0.0135, w:0, h:0 };
+      st = { type:"text", text:txt, size: opts.size || 0.0135, w:0, h:0, dyn: S.tool === "date" };
     }
     st.id = S.seq++;
     st.page = pageIndex;
@@ -662,18 +751,32 @@
     var withDate = $("withDate").checked;
     var n = 0;
     var prevTool = S.tool;
+    var incProd = $("withProducer").checked;
+    var skipped = 0;
     S.finds.forEach(function(f){
+      if (f.producer && !incProd){ skipped++; return; }
       var pg = S.pages[f.page];
-      // la etiqueta ("Signature") va debajo de la raya: la firma se apoya encima
       var sigW = 0.22;
       var hRatio = sigW * (S.sig.h / S.sig.w) * (pg.dispW / pg.dispH);
+      var u, v;
+      if (f.inline){
+        // "Applicant's Signature:" con la raya a la derecha: la firma se apoya en esa raya
+        u = f.u1 + 0.012;
+        v = f.v - hRatio;
+      } else {
+        // "Signature" debajo de la raya: la firma va encima de la etiqueta
+        u = f.u + 0.005;
+        v = f.v - f.h * 1.45 - hRatio;
+      }
       S.tool = "sig";
-      var st = placeAt(f.page, f.u + 0.005, f.v - f.h * 1.45 - hRatio, false, { w: sigW });
+      var st = placeAt(f.page, u, v, false, { w: sigW });
       if (st) n++;
       if (withDate && f.dateU != null){
         S.tool = "date";
         $("dateValue").value = $("dateValue").value || todayUS();
-        placeAt(f.page, f.dateU + 0.005, f.dateV - f.h * 1.9, false, { size: f.h * 0.95 });
+        var ds = f.h * 0.95;
+        if (f.dateInline) placeAt(f.page, f.dateU1 + 0.012, f.dateV - ds * 0.82, false, { size: ds });
+        else              placeAt(f.page, f.dateU + 0.005, f.dateV - f.h * 1.9, false, { size: ds });
       }
       f.used = true;
     });
@@ -681,7 +784,7 @@
     syncToolUI();
     renderFinds();
     select(null);
-    toast(n + " firma(s) colocadas. Revisa cada página y ajusta arrastrando.");
+    toast(n + " firma(s) colocadas" + (skipped ? ", " + skipped + " de productor omitidas" : "") + ". Revisa cada página y ajusta arrastrando.");
   });
 
   $("clearBtn").addEventListener("click", function(){
@@ -772,6 +875,380 @@
       }
     }
   });
+
+
+  /* ============================ Google Drive ============================ */
+
+  var DRIVE = {
+    clientId:  localStorage.getItem("fp_client_id") || "",
+    folderId:  localStorage.getItem("fp_folder_id") || "1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u",
+    filesFolder: localStorage.getItem("fp_files_folder") || "1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE",
+    token: null,
+    tokenClient: null,
+    recentUrls: []
+  };
+  var SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+  function dstat(msg, kind){
+    var el = $("driveStatus");
+    el.className = "status" + (kind ? " " + kind : "");
+    $("driveMsg").textContent = msg;
+  }
+
+  function gisReady(){
+    return !!(window.google && google.accounts && google.accounts.oauth2);
+  }
+
+  function driveAuth(interactive){
+    return new Promise(function(resolve, reject){
+      if (!DRIVE.clientId) { reject(new Error("Falta el OAuth Client ID (ábrelo en “Conexión con Google Drive”).")); return; }
+      if (!gisReady())     { reject(new Error("No cargó la librería de Google. Revisa tu conexión.")); return; }
+      if (DRIVE.token)     { resolve(DRIVE.token); return; }
+
+      if (!DRIVE.tokenClient || DRIVE.tokenClient._cid !== DRIVE.clientId){
+        DRIVE.tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: DRIVE.clientId,
+          scope: SCOPE,
+          callback: function(){}
+        });
+        DRIVE.tokenClient._cid = DRIVE.clientId;
+      }
+      DRIVE.tokenClient.callback = function(resp){
+        if (resp && resp.access_token){
+          DRIVE.token = resp.access_token;
+          setTimeout(function(){ DRIVE.token = null; }, ((resp.expires_in || 3600) - 60) * 1000);
+          resolve(DRIVE.token);
+        } else {
+          reject(new Error("No se recibió el permiso de Google."));
+        }
+      };
+      DRIVE.tokenClient.error_callback = function(err){
+        reject(new Error(err && err.type === "popup_closed" ? "Cerraste la ventana de Google." : "Google rechazó la conexión."));
+      };
+      DRIVE.tokenClient.requestAccessToken({ prompt: interactive === false ? "" : "consent" });
+    });
+  }
+
+  async function gapi(url){
+    var tok = await driveAuth();
+    var r = await fetch(url, { headers: { Authorization: "Bearer " + tok } });
+    if (r.status === 401){
+      DRIVE.token = null;
+      tok = await driveAuth();
+      r = await fetch(url, { headers: { Authorization: "Bearer " + tok } });
+    }
+    if (!r.ok) throw new Error("Drive respondió " + r.status);
+    return r;
+  }
+
+  async function driveList(q, size, order){
+    var url = "https://www.googleapis.com/drive/v3/files"
+      + "?q=" + encodeURIComponent(q)
+      + "&fields=" + encodeURIComponent("files(id,name,createdTime)")
+      + "&pageSize=" + (size || 20)
+      + "&orderBy=" + encodeURIComponent(order || "createdTime desc");
+    var r = await gapi(url);
+    var j = await r.json();
+    return j.files || [];
+  }
+
+  async function driveBlob(fileId){
+    var r = await gapi("https://www.googleapis.com/drive/v3/files/" + fileId + "?alt=media");
+    return await r.blob();
+  }
+
+  async function whoAmI(){
+    try {
+      var r = await gapi("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)");
+      var j = await r.json();
+      return (j.user && j.user.emailAddress) || "cuenta de Google";
+    } catch(e){ return "cuenta de Google"; }
+  }
+
+  async function fetchSignatureById(id){
+    id = (id || "").trim().replace(/[^0-9a-zA-Z_-]/g, "");
+    if (!id){ dstat("Escribe el ID de DetalleOrden.", "err"); return; }
+    if (!DRIVE.folderId){ dstat("Falta el ID de la carpeta.", "err"); return; }
+    dstat("Buscando " + id + "…");
+    try {
+      var base = "'" + DRIVE.folderId + "' in parents and trashed = false";
+      var files = await driveList("name contains '" + id + "' and " + base, 20);
+      files = files.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
+
+      if (!files.length){
+        // respaldo: el índice de Drive a veces no acepta el prefijo, listamos y filtramos aquí
+        dstat("No apareció en la búsqueda, revisando la carpeta…");
+        var all = await driveList(base, 1000);
+        files = all.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
+      }
+      if (!files.length){ dstat("No hay firma para " + id + " en esa carpeta.", "err"); return; }
+
+      var pick = files[0];
+      await useDriveFile(pick);
+      dstat(files.length > 1
+        ? ("Cargada " + pick.name + " (" + files.length + " archivos con ese ID)")
+        : ("Cargada " + pick.name), "on");
+    } catch(err){
+      dstat(err.message || "Error consultando Drive", "err");
+    }
+  }
+
+  async function useDriveFile(f){
+    var blob = await driveBlob(f.id);
+    await new Promise(function(res, rej){
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function(){ S.rawSig = { img: img }; processSignature(); res(); };
+      img.onerror = function(){ rej(new Error("La imagen no se pudo leer.")); };
+      img.src = url;
+    });
+  }
+
+  async function showRecent(){
+    if (!DRIVE.folderId){ dstat("Falta el ID de la carpeta.", "err"); return; }
+    var box = $("driveRecent");
+    dstat("Cargando últimas firmas…");
+    try {
+      var files = await driveList("'" + DRIVE.folderId + "' in parents and trashed = false", 8);
+      DRIVE.recentUrls.forEach(function(u){ URL.revokeObjectURL(u); });
+      DRIVE.recentUrls = [];
+      box.innerHTML = "";
+      for (var i = 0; i < files.length; i++){
+        (function(f){
+          var b = document.createElement("button");
+          b.type = "button";
+          b.title = f.name;
+          var im = document.createElement("img");
+          var lb = document.createElement("span");
+          lb.className = "rid";
+          lb.textContent = f.name.split(".")[0];
+          b.appendChild(im); b.appendChild(lb);
+          b.addEventListener("click", async function(){
+            dstat("Cargando " + f.name + "…");
+            try { await useDriveFile(f); dstat("Cargada " + f.name, "on"); }
+            catch(e){ dstat(e.message, "err"); }
+          });
+          box.appendChild(b);
+          driveBlob(f.id).then(function(blob){
+            var u = URL.createObjectURL(blob);
+            DRIVE.recentUrls.push(u);
+            im.src = u;
+          }).catch(function(){});
+        })(files[i]);
+      }
+      dstat(files.length + " firmas recientes", "on");
+    } catch(err){
+      dstat(err.message || "Error consultando Drive", "err");
+    }
+  }
+
+  $("cfgClient").value = DRIVE.clientId;
+  $("cfgFolder").value = DRIVE.folderId;
+  $("cfgFiles").value = DRIVE.filesFolder;
+  $("cfgSave").addEventListener("click", function(){
+    DRIVE.clientId = $("cfgClient").value.trim();
+    DRIVE.folderId = $("cfgFolder").value.trim();
+    DRIVE.filesFolder = $("cfgFiles").value.trim();
+    localStorage.setItem("fp_files_folder", DRIVE.filesFolder);
+    localStorage.setItem("fp_client_id", DRIVE.clientId);
+    localStorage.setItem("fp_folder_id", DRIVE.folderId);
+    DRIVE.token = null;
+    dstat("Configuración guardada. Conéctate con Google.");
+    toast("Configuración guardada en este navegador.");
+  });
+  $("connectBtn").addEventListener("click", async function(){
+    try {
+      await driveAuth(true);
+      var who = await whoAmI();
+      dstat("Conectado: " + who, "on");
+    } catch(err){ dstat(err.message, "err"); }
+  });
+  $("fetchBtn").addEventListener("click", function(){ traerTodo($("ordenId").value); });
+  $("ordenId").addEventListener("keydown", function(ev){
+    if (ev.key === "Enter"){ ev.preventDefault(); traerTodo(this.value); }
+  });
+  $("recentBtn").addEventListener("click", showRecent);
+  if (!DRIVE.clientId) dstat("Falta configurar el Client ID de Google.");
+
+
+  /* ============================ PDF producer desde Drive ============================ */
+
+  async function fetchProducerById(id){
+    if (!DRIVE.filesFolder) throw new Error("Falta la carpeta DetalleOrden_Files_.");
+    var base = "'" + DRIVE.filesFolder + "' in parents and trashed = false";
+    var files = await driveList("name contains '" + id + "' and " + base, 20);
+    files = files.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
+    if (!files.length){
+      var all = await driveList(base, 1000);
+      files = all.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
+    }
+    files = files.filter(function(f){ return /\.pdf$/i.test(f.name); });
+    if (!files.length) throw new Error("No hay PDF producer para " + id + ".");
+    files.sort(function(a, b){ return (b.createdTime || "").localeCompare(a.createdTime || ""); });
+    var f = files[0];
+    var blob = await driveBlob(f.id);
+    var buf = await blob.arrayBuffer();
+    await openPdf(new Uint8Array(buf), f.name, false);
+    return f;
+  }
+
+  async function traerTodo(rawId){
+    var id = (rawId || "").trim().replace(/[^0-9a-zA-Z_-]/g, "");
+    if (!id){ dstat("Escribe el ID de DetalleOrden.", "err"); return; }
+    dstat("Buscando " + id + "…");
+    try {
+      var pdf = await fetchProducerById(id);
+      dstat("PDF: " + pdf.name + " — buscando firma…");
+      await fetchSignatureById(id);
+      var tplName = localStorage.getItem("fp_tpl_default");
+      if (tplName && TPL.all()[tplName]) applyTemplate(tplName);
+    } catch(err){
+      dstat(err.message || "Error consultando Drive", "err");
+    }
+  }
+
+  /* ============================ plantillas ============================ */
+
+  var TPL = {
+    all: function(){
+      try { return JSON.parse(localStorage.getItem("fp_templates") || "{}"); }
+      catch(e){ return {}; }
+    },
+    put: function(obj){ localStorage.setItem("fp_templates", JSON.stringify(obj)); }
+  };
+
+  function nearestAnchor(st){
+    var best = null, bd = 1e9;
+    S.finds.forEach(function(f){
+      if (f.page !== st.page) return;
+      var du = st.u - f.u, dv = st.v - f.v;
+      var d = Math.hypot(du, dv * 1.6);      // pesamos la distancia vertical
+      if (d < bd){ bd = d; best = f; }
+    });
+    return (best && bd < 0.30) ? best : null;
+  }
+
+  function saveTemplate(){
+    var name = ($("tplName").value || "").trim();
+    if (!name){ toast("Ponle nombre a la plantilla."); return; }
+    if (!S.stamps.length){ toast("No hay nada colocado que guardar."); return; }
+    var items = S.stamps.map(function(st){
+      var a = nearestAnchor(st);
+      return {
+        type: st.type, dyn: !!st.dyn, text: st.text || "",
+        w: st.w, h: st.h, size: st.size,
+        anchor: a ? a.key : null,
+        dU: a ? (st.u - a.u) : null,
+        dV: a ? (st.v - a.v) : null,
+        page: st.page, u: st.u, v: st.v
+      };
+    });
+    var all = TPL.all();
+    all[name] = { name: name, saved: new Date().toISOString().slice(0, 10), items: items };
+    TPL.put(all);
+    localStorage.setItem("fp_tpl_default", name);
+    renderTemplates();
+    toast('Plantilla "' + name + '" guardada con ' + items.length + " elementos.");
+  }
+
+  function applyTemplate(name){
+    var t = TPL.all()[name];
+    if (!t){ toast("No existe esa plantilla."); return; }
+    var byKey = {};
+    S.finds.forEach(function(f){ byKey[f.key] = f; });
+
+    var ok = 0, byCoord = 0, skipped = 0;
+    t.items.forEach(function(it){
+      var page, u, v;
+      var a = it.anchor ? byKey[it.anchor] : null;
+      if (a){ page = a.page; u = a.u + it.dU; v = a.v + it.dV; ok++; }
+      else if (S.pages[it.page]){ page = it.page; u = it.u; v = it.v; byCoord++; }
+      else { skipped++; return; }
+
+      if (it.type === "sig"){
+        if (!S.sig){ skipped++; return; }
+        var st = { id:S.seq++, type:"sig", page:page, u:u, v:v, w:it.w, h:it.h };
+        S.stamps.push(st); mountStamp(st);
+      } else {
+        var txt = it.dyn ? ($("dateValue").value || todayUS()) : it.text;
+        var t2 = { id:S.seq++, type:"text", page:page, u:u, v:v, size:it.size, text:txt, dyn:it.dyn };
+        S.stamps.push(t2); mountStamp(t2);
+      }
+    });
+    select(null); updateCount();
+    var msg = ok + " por ancla";
+    if (byCoord) msg += ", " + byCoord + " por coordenada fija (revisar)";
+    if (skipped) msg += ", " + skipped + " sin colocar";
+    dstat('Plantilla "' + name + '": ' + msg, byCoord || skipped ? "err" : "on");
+    toast('Plantilla aplicada — ' + msg + ".");
+  }
+
+  function renderTemplates(){
+    var all = TPL.all(), ul = $("tplList"), def = localStorage.getItem("fp_tpl_default");
+    ul.innerHTML = "";
+    var names = Object.keys(all);
+    if (!names.length){
+      var li0 = document.createElement("li");
+      li0.innerHTML = '<span class="hint" style="padding:4px 8px">Ninguna guardada todavía.</span>';
+      ul.appendChild(li0);
+      return;
+    }
+    names.forEach(function(n){
+      var li = document.createElement("li");
+      var b = document.createElement("button");
+      b.innerHTML = '<span class="pg">' + all[n].items.length + '</span><span class="lbl"></span>';
+      b.querySelector(".lbl").textContent = n + (n === def ? " · por defecto" : "");
+      b.title = "Aplicar " + n;
+      b.addEventListener("click", function(){ applyTemplate(n); localStorage.setItem("fp_tpl_default", n); renderTemplates(); });
+      var x = document.createElement("span");
+      x.className = "done"; x.textContent = "✕"; x.title = "Borrar";
+      x.style.cursor = "pointer"; x.style.color = "var(--seal)";
+      x.addEventListener("click", function(ev){
+        ev.stopPropagation();
+        var a2 = TPL.all(); delete a2[n]; TPL.put(a2);
+        if (def === n) localStorage.removeItem("fp_tpl_default");
+        renderTemplates();
+      });
+      b.appendChild(x);
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+
+  $("tplSave").addEventListener("click", saveTemplate);
+  $("tplExport").addEventListener("click", function(){
+    var blob = new Blob([JSON.stringify(TPL.all(), null, 2)], { type: "application/json" });
+    download(blob, "plantillas-firma.json");
+  });
+  $("tplImportBtn").addEventListener("click", function(){ $("tplImport").click(); });
+  $("tplImport").addEventListener("change", async function(e){
+    var f = e.target.files[0]; if (!f) return;
+    try {
+      var inc = JSON.parse(await f.text());
+      var all = TPL.all();
+      Object.keys(inc).forEach(function(k){ all[k] = inc[k]; });
+      TPL.put(all); renderTemplates();
+      toast(Object.keys(inc).length + " plantilla(s) importadas.");
+    } catch(err){ toast("Ese archivo no es una exportación válida."); }
+  });
+  renderTemplates();
+
+  /* ============================ enlace desde AppSheet ============================ */
+
+  (function fromUrl(){
+    var q = new URLSearchParams(location.search);
+    var orden = q.get("orden") || q.get("id");
+    var tpl = q.get("plantilla");
+    if (tpl) localStorage.setItem("fp_tpl_default", tpl);
+    if (!orden) return;
+    S.fromUrl = true;
+    $("ordenId").value = orden;
+    var tries = 0;
+    (function waitGis(){
+      if (gisReady() && DRIVE.clientId){ traerTodo(orden); return; }
+      if (++tries > 40){ dstat("Configura el Client ID para abrir automáticamente.", "err"); return; }
+      setTimeout(waitGis, 250);
+    })();
+  })();
 
   /* ============================ PDF de entrada ============================ */
 
@@ -956,6 +1433,11 @@
     syncToolUI();
     $("dateValue").value = todayUS();
     $("sigPreview").style.display = "none";
+    if (S.fromUrl){
+      $("topDoc").textContent = "Cargando desde Drive…";
+      $("sampleBadge").hidden = true;
+      return;
+    }
     try {
       var img = new Image();
       img.onload = function(){ S.rawSig = { img: img }; processSignature(); };
