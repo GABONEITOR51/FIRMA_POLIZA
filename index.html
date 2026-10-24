@@ -1245,6 +1245,7 @@
     dstat("Buscando " + id + "…");
     try {
       S.ordenId = id;
+      if (typeof BF !== "undefined"){ BF.datosHoja = null; }
       var pdf = await fetchProducerById(id);
       // cada orden empieza sin firma: la firma del cliente anterior nunca pasa a otra orden
       S.sig = null; S.rawSig = null;
@@ -1524,6 +1525,39 @@
     }
     throw new Error("No encontré la orden " + orden + " en la pestaña " + SHEET.tab + ".");
   }
+  // Lee de la fila de la orden las columnas pedidas. Las fechas llegan como número de serie
+  // de Sheets y se convierten a MM/DD/YYYY, así no depende del formato regional de la hoja.
+  async function leerFila(orden, columnas){
+    var hdr = await (await gsend(SH() + "/values/" + rng("1:1"))).json();
+    var heads = ((hdr.values || [])[0] || []).map(function(h){ return String(h).trim(); });
+    var cand = [0];
+    heads.forEach(function(h, i){ if (i > 0 && /^id/i.test(h)) cand.push(i); });
+    var fila = 0;
+    for (var c = 0; c < cand.length && !fila; c++){
+      var L = colLetter(cand[c]);
+      var col = await (await gsend(SH() + "/values/" + rng(L + ":" + L))).json();
+      (col.values || []).forEach(function(r, i){ if (i > 0 && String(r[0] || "").trim() === orden) fila = i + 1; });
+    }
+    if (!fila) throw new Error("No encontré la orden " + orden + " en la pestaña " + SHEET.tab + ".");
+    var last = colLetter(Math.max(heads.length - 1, 0));
+    var row = await (await gsend(SH() + "/values/" + rng("A" + fila + ":" + last + fila)
+      + "?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER")).json();
+    var vals = (row.values || [])[0] || [];
+    var out = {};
+    columnas.forEach(function(nombre){
+      var i = heads.indexOf(nombre);
+      var v = i >= 0 ? vals[i] : "";
+      out[nombre] = (v == null) ? "" : v;
+    });
+    return out;
+  }
+  function serialAFecha(v){
+    if (typeof v !== "number" || !isFinite(v) || v <= 0) return String(v || "").trim();
+    var d = new Date(Math.round((v - 25569) * 86400000));   // 25569 = 1970-01-01 en serie de Sheets
+    var p2 = function(n){ return (n < 10 ? "0" : "") + n; };
+    return p2(d.getUTCMonth() + 1) + "/" + p2(d.getUTCDate()) + "/" + d.getUTCFullYear();
+  }
+
   async function writeCell(cell, value){
     await gsend(SH() + "/values/" + rng(cell) + "?valueInputOption=RAW", {
       method: "PUT", headers: { "Content-Type": "application/json" },
@@ -1632,8 +1666,7 @@
     $("bfHint").textContent =
         !orden  ? "Solo para documentos que vienen de una orden de AppSheet."
       : !S.sig  ? "Primero dibuja la firma del cliente."
-      : !BF.datos ? "La liga de AppSheet no trae los datos del Broker Fee (#d=…): se abrirá con líneas en blanco."
-      : "Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.";
+      : "Abre el Broker Fee de esta orden con la misma firma; el nombre y la fecha se toman de la orden.";
   }
 
   $("bfBtn").addEventListener("click", function(){
@@ -1652,7 +1685,20 @@
     if (ev.origin !== location.origin) return;
     var m = ev.data || {};
     if (m.type === "bf-ready"){
-      BF.win.postMessage({ type: "bf-firma", png: S.sig ? S.sig.url : "", orden: S.ordenId || "" }, MISMO_SITIO);
+      var w = BF.win, orden = S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : "");
+      var enviar = function(datos){
+        w.postMessage({ type: "bf-firma", png: S.sig ? S.sig.url : "", orden: orden, datos: datos || null }, MISMO_SITIO);
+      };
+      if (BF.datosHoja){ enviar(BF.datosHoja); return; }
+      if (BF.leyendo) return;          // la pestaña vuelve a preguntar; contestamos cuando termine
+      BF.leyendo = true;
+      leerFila(orden, ["NomCliente", "Poliza_Inicio"]).then(function(r){
+        BF.datosHoja = { cliente: String(r.NomCliente || "").trim(), fecha: serialAFecha(r.Poliza_Inicio) };
+        enviar(BF.datosHoja);
+      }).catch(function(err){
+        dstat("No pude leer nombre y fecha de la orden: " + err.message, "err");
+        enviar(null);
+      }).then(function(){ BF.leyendo = false; });
     } else if (m.type === "bf-saved"){
       $("bfHint").textContent = "✅ Broker Fee guardado en AppSheet: " + (m.name || "");
       toast("Broker Fee guardado en AppSheet.");
