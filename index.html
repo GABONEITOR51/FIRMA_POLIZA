@@ -258,6 +258,12 @@
   .stamp .tools button:hover{background:var(--panel-2)}
   .stamp .tools .del{color:var(--seal)}
 
+  /* bloque de guardar: va después de la última hoja */
+  .savedock{
+    width:min(880px, 100%); flex:none; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; box-shadow:var(--page-shadow); padding:18px; display:flex; flex-direction:column; gap:10px;
+  }
+  .savedock h2{margin:0; font-size:15px; font-weight:600}
   .empty-stage{
     max-width:430px; text-align:center; color:var(--muted); font-size:13px; margin-top:60px;
   }
@@ -304,17 +310,14 @@
         <h2><span class="num">2</span> Firmar documento</h2>
         <button class="btn signdoc big wide" id="signDocBtn" disabled>📝 Firmar documento</button>
         <p class="hint" id="signDocHint">Coloca la firma y la fecha en todas las líneas de firma del cliente. Revisa cada página; puedes arrastrar la firma o tocar el documento para poner otra a mano.</p>
+        <div class="row tight">
+          <button class="btn sm" id="clearBtn">Quitar las firmas de esta sesión</button>
+        </div>
       </section>
 
       <section class="blk">
         <h2><span class="num">3</span> Guardar</h2>
-        <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
-        <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
-        <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
-        <div class="row tight">
-          <button class="btn sm" id="clearBtn">Quitar las firmas de esta sesión</button>
-        </div>
-        <p class="hint">Ese botón solo quita lo que colocaste ahora. Para deshacer lo que ya se guardó en Drive, usa Versiones (en Opciones avanzadas).</p>
+        <p class="hint">Revisa todas las hojas. El botón <b>Guardar en AppSheet</b> está al final del documento, después de la última hoja.</p>
       </section>
 
       <details class="adv" id="advPanel">
@@ -327,6 +330,8 @@
             <button class="btn" id="fetchBtn">Traer todo</button>
           </div>
           <button class="btn wide" id="verBtn" disabled>Versiones del archivo…</button>
+          <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
+          <p class="hint">Quitar las firmas solo quita lo que colocaste ahora. Para deshacer lo que ya se guardó en Drive, usa Versiones.</p>
         </section>
 
         <section class="blk">
@@ -416,6 +421,11 @@
       <span class="meta" id="placedCount">0 elementos colocados</span>
     </div>
     <div class="stage" id="stage"></div>
+    <div class="savedock" id="saveDock" hidden>
+      <h2>¿Ya revisaste todas las hojas?</h2>
+      <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
+      <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
+    </div>
   </main>
 </div>
 
@@ -520,12 +530,19 @@
 
   /* ============================ carga del PDF ============================ */
 
+  // vacía la vista sin perder el bloque de guardar (lo saca del stage y lo oculta)
+  function limpiarStage(){
+    var dock = $("saveDock");
+    if (dock){ dock.hidden = true; stage.parentNode.appendChild(dock); }
+    stage.innerHTML = "";
+  }
+
   async function openPdf(bytes, name, isSample){
     S.bytes = bytes;
     S.name = name;
     S.isSample = !!isSample;
     S.stamps = []; S.finds = []; S.sel = null; ANCHOR_N = {}; S.driveFile = null;
-    stage.innerHTML = "";
+    limpiarStage();
     S.pages = [];
 
     var task = pdfjsLib.getDocument({ data: bytes.slice(0) });
@@ -568,6 +585,9 @@
     }
 
     renderFinds();
+    var dock = $("saveDock");
+    dock.hidden = false;
+    stage.appendChild(dock);
     updateCount();
     $("signAll").disabled = S.finds.length === 0;
     $("signDocBtn").disabled = false;
@@ -886,8 +906,8 @@
     if (!S.sig){ toast("Primero dibuja la firma del cliente."); abrirPad(); return; }
     if (!S.finds.length){ toast("Este PDF no tiene líneas de firma reconocibles: toca el documento donde va cada firma.", 4500); return; }
     $("signAll").click();
-    var p = S.finds[0] && S.pages[S.finds[0].page];
-    if (p) p.wrap.scrollIntoView({ behavior:"smooth", block:"center" });
+    var last = S.pages[S.pages.length - 1];
+    if (last) last.wrap.scrollIntoView({ behavior:"smooth", block:"start" });
   });
 
   $("clearBtn").addEventListener("click", function(){
@@ -1195,7 +1215,7 @@
 
     function pedirClic(motivo){
       $("topDoc").textContent = "Orden " + orden;
-      stage.innerHTML = "";
+      limpiarStage();
       var box = document.createElement("div");
       box.className = "empty-stage";
       var p = document.createElement("p");
@@ -1205,7 +1225,7 @@
       b.style.marginTop = "14px";
       b.textContent = "Traer la orden " + orden;
       b.addEventListener("click", function(){
-        stage.innerHTML = "";
+        limpiarStage();
         $("topDoc").textContent = "Cargando desde Drive…";
         traerTodo(orden);
       });
