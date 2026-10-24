@@ -159,6 +159,8 @@
   .btn.big{min-height:72px; font-size:18px; font-weight:600; border-radius:7px; padding:12px 16px}
   .btn.draw{background:var(--accent-soft); border:2px solid var(--accent); color:var(--accent)}
   .btn.draw:hover:not(:disabled){filter:brightness(1.04)}
+  .btn.signdoc{background:var(--ok); border-color:var(--ok); color:#fff}
+  .btn.signdoc:hover:not(:disabled){filter:brightness(1.08)}
 
   /* opciones avanzadas (administrador) */
   details.adv{border-top:1px solid var(--line); margin-top:8px}
@@ -294,13 +296,18 @@
         <h2><span class="num">1</span> Firma del cliente</h2>
         <div class="sigbox"><img id="sigPreview" alt="Firma cargada" style="display:none"><span class="empty" id="sigEmpty">sin firma</span></div>
         <button class="btn draw big wide" id="drawBtn">✍ Dibujar la firma aquí</button>
-        <p class="hint">Después toca el documento donde va la firma. Arrástrala para moverla y usa la esquina azul para cambiar el tamaño.</p>
         <p class="hint" id="sigInfo"></p>
         <div class="status" id="driveStatus"><span class="dot"></span><span id="driveMsg">Drive sin conectar</span></div>
       </section>
 
       <section class="blk">
-        <h2><span class="num">2</span> Guardar</h2>
+        <h2><span class="num">2</span> Firmar documento</h2>
+        <button class="btn signdoc big wide" id="signDocBtn" disabled>📝 Firmar documento</button>
+        <p class="hint" id="signDocHint">Coloca la firma y la fecha en todas las líneas de firma del cliente. Revisa cada página; puedes arrastrar la firma o tocar el documento para poner otra a mano.</p>
+      </section>
+
+      <section class="blk">
+        <h2><span class="num">3</span> Guardar</h2>
         <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
         <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
         <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
@@ -380,10 +387,6 @@
               <div>
                 <label for="cfgClient">OAuth Client ID</label>
                 <input type="text" id="cfgClient" placeholder="000000-xxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
-              </div>
-              <div>
-                <label for="cfgFolder">Carpeta DetalleOrden_Images (firmas)</label>
-                <input type="text" id="cfgFolder" value="1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u" autocomplete="off" spellcheck="false">
               </div>
               <div>
                 <label for="cfgFiles">Carpeta DetalleOrden_Files_ (PDFs producer)</label>
@@ -567,6 +570,10 @@
     renderFinds();
     updateCount();
     $("signAll").disabled = S.finds.length === 0;
+    $("signDocBtn").disabled = false;
+    $("signDocHint").textContent = S.finds.length
+      ? "Se encontraron " + S.finds.length + " línea(s) de firma. Oprime el botón para firmarlas todas."
+      : "No se encontraron líneas de firma en este PDF: toca el documento donde va cada firma.";
   }
 
   /* ==================== detección de líneas de firma ==================== */
@@ -833,7 +840,9 @@
   /* ======================= firmar todas las detectadas ======================= */
 
   $("signAll").addEventListener("click", function(){
-    if (!S.sig){ toast("Primero carga la imagen de la firma."); return; }
+    if (!S.sig){ toast("Primero dibuja la firma del cliente."); return; }
+    // si se oprime otra vez, se reemplaza lo que puso la vez anterior en lugar de duplicarlo
+    S.stamps.filter(function(x){ return x.auto; }).forEach(removeStamp);
     var withDate = $("withDate").checked;
     var n = 0;
     var prevTool = S.tool;
@@ -854,13 +863,15 @@
       }
       S.tool = "sig";
       var st = placeAt(f.page, u, v, false, { w: sigW });
-      if (st) n++;
+      if (st){ st.auto = true; n++; }
       if (withDate && f.dateU != null){
         S.tool = "date";
         $("dateValue").value = $("dateValue").value || todayUS();
         var ds = f.h * 0.95;
-        if (f.dateInline) placeAt(f.page, f.dateU1 + 0.012, f.dateV - ds * 0.82, false, { size: ds });
-        else              placeAt(f.page, f.dateU + 0.005, f.dateV - f.h * 1.9, false, { size: ds });
+        var dt = f.dateInline
+          ? placeAt(f.page, f.dateU1 + 0.012, f.dateV - ds * 0.82, false, { size: ds })
+          : placeAt(f.page, f.dateU + 0.005, f.dateV - f.h * 1.9, false, { size: ds });
+        if (dt) dt.auto = true;
       }
       f.used = true;
     });
@@ -869,6 +880,14 @@
     renderFinds();
     select(null);
     toast(n + " firma(s) colocadas" + (skipped ? ", " + skipped + " de productor omitidas" : "") + ". Revisa cada página y ajusta arrastrando.");
+  });
+
+  $("signDocBtn").addEventListener("click", function(){
+    if (!S.sig){ toast("Primero dibuja la firma del cliente."); abrirPad(); return; }
+    if (!S.finds.length){ toast("Este PDF no tiene líneas de firma reconocibles: toca el documento donde va cada firma.", 4500); return; }
+    $("signAll").click();
+    var p = S.finds[0] && S.pages[S.finds[0].page];
+    if (p) p.wrap.scrollIntoView({ behavior:"smooth", block:"center" });
   });
 
   $("clearBtn").addEventListener("click", function(){
@@ -1000,7 +1019,6 @@
     // El Client ID de OAuth es un identificador publico, no un secreto: lo que
     // protege el acceso es el origen autorizado + tu propia sesion de Google.
     clientId:  localStorage.getItem("fp_client_id") || "635469391741-36kpb08t2k0db0qd4kko6ksi4duqq60h.apps.googleusercontent.com",
-    folderId:  localStorage.getItem("fp_folder_id") || "1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u",
     filesFolder: localStorage.getItem("fp_files_folder") || "1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE",
     token: null,
     tokenClient: null
@@ -1089,55 +1107,13 @@
     } catch(e){ return "cuenta de Google"; }
   }
 
-  async function fetchSignatureById(id){
-    id = (id || "").trim().replace(/[^0-9a-zA-Z_-]/g, "");
-    if (!id){ dstat("Escribe el ID de DetalleOrden.", "err"); return; }
-    if (!DRIVE.folderId){ dstat("Falta el ID de la carpeta.", "err"); return; }
-    dstat("Buscando " + id + "…");
-    try {
-      var base = "'" + DRIVE.folderId + "' in parents and trashed = false";
-      var files = await driveList("name contains '" + id + "' and " + base, 20);
-      files = files.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
-
-      if (!files.length){
-        // respaldo: el índice de Drive a veces no acepta el prefijo, listamos y filtramos aquí
-        dstat("No apareció en la búsqueda, revisando la carpeta…");
-        var all = await driveList(base, 1000);
-        files = all.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
-      }
-      if (!files.length){ dstat("No hay firma para " + id + " en esa carpeta.", "err"); return; }
-
-      var pick = files[0];
-      await useDriveFile(pick);
-      dstat(files.length > 1
-        ? ("Cargada " + pick.name + " (" + files.length + " archivos con ese ID)")
-        : ("Cargada " + pick.name), "on");
-    } catch(err){
-      dstat(err.message || "Error consultando Drive", "err");
-    }
-  }
-
-  async function useDriveFile(f){
-    var blob = await driveBlob(f.id);
-    await new Promise(function(res, rej){
-      var url = URL.createObjectURL(blob);
-      var img = new Image();
-      img.onload = function(){ S.rawSig = { img: img }; processSignature(); res(); };
-      img.onerror = function(){ rej(new Error("La imagen no se pudo leer.")); };
-      img.src = url;
-    });
-  }
-
   $("cfgClient").value = DRIVE.clientId;
-  $("cfgFolder").value = DRIVE.folderId;
   $("cfgFiles").value = DRIVE.filesFolder;
   $("cfgSave").addEventListener("click", function(){
     DRIVE.clientId = $("cfgClient").value.trim();
-    DRIVE.folderId = $("cfgFolder").value.trim();
     DRIVE.filesFolder = $("cfgFiles").value.trim();
     localStorage.setItem("fp_files_folder", DRIVE.filesFolder);
     localStorage.setItem("fp_client_id", DRIVE.clientId);
-    localStorage.setItem("fp_folder_id", DRIVE.folderId);
     DRIVE.token = null;
     dstat("Configuración guardada. Conéctate con Google.");
     toast("Configuración guardada en este navegador.");
@@ -1198,8 +1174,11 @@
     dstat("Buscando " + id + "…");
     try {
       var pdf = await fetchProducerById(id);
-      dstat("PDF: " + pdf.name + " — buscando firma…");
-      await fetchSignatureById(id);
+      // cada orden empieza sin firma: la firma del cliente anterior nunca pasa a otra orden
+      S.sig = null; S.rawSig = null;
+      $("sigPreview").style.display = "none"; $("sigPreview").removeAttribute("src");
+      $("sigEmpty").style.display = ""; $("sigInfo").textContent = "";
+      dstat("PDF cargado: " + pdf.name + ". Ahora dibuja la firma del cliente.", "on");
     } catch(err){
       dstat(err.message || "Error consultando Drive", "err");
     }
