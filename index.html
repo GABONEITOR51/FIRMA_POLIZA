@@ -446,6 +446,8 @@
       <h2>¿Ya revisaste todas las hojas?</h2>
       <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
       <p class="hint" id="saveDriveHint">Guarda el PDF firmado en la columna [⚫Producer_Firmado] de la orden. Solo se activa si el documento vino de una orden.</p>
+      <button class="btn signdoc big wide" id="bfBtn" disabled>📄 Firmar Broker Fee con esta firma</button>
+      <p class="hint" id="bfHint">Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.</p>
     </div>
   </main>
 </div>
@@ -853,6 +855,7 @@
     updateCount();
   }
   function updateCount(){
+    if (typeof syncBf === "function") try { syncBf(); } catch(e){}
     $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
     $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
     $("saveDriveBtn").disabled = S.stamps.length === 0 || !S.bytes || !S.driveFile;
@@ -1031,6 +1034,7 @@
     for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
 
     S.sig = { bytes: bytes, url: url, w: w, h: h };
+    try { syncBf(); } catch(e){}
     $("sigPreview").src = url;
     $("sigPreview").style.display = "block";
     $("sigEmpty").style.display = "none";
@@ -1613,6 +1617,46 @@
       toast("No se pudo guardar: " + (err.message || "error"), 5000);
     }
     b.textContent = "Sí, guardar"; b.disabled = false;
+  });
+
+  /* ============================ Broker Fee con la misma firma ============================ */
+
+  // Los datos del Broker Fee llegan en la liga de AppSheet después de #d= (igual que en BrokerFee)
+  var BF = { win: null, datos: (location.hash.indexOf("#d=") === 0) ? location.hash : "" };
+  var MISMO_SITIO = (location.origin === "null") ? "*" : location.origin;
+
+  function syncBf(){
+    var b = $("bfBtn"); if (!b) return;
+    var orden = S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : "");
+    b.disabled = !S.sig || !orden;
+    $("bfHint").textContent =
+        !orden  ? "Solo para documentos que vienen de una orden de AppSheet."
+      : !S.sig  ? "Primero dibuja la firma del cliente."
+      : !BF.datos ? "La liga de AppSheet no trae los datos del Broker Fee (#d=…): se abrirá con líneas en blanco."
+      : "Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.";
+  }
+
+  $("bfBtn").addEventListener("click", function(){
+    if (!S.sig){ toast("Primero dibuja la firma del cliente."); return; }
+    var orden = S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : "");
+    var url = new URL("../BrokerFee/", location.href);
+    url.search = "?orden=" + encodeURIComponent(orden) + "&firma=poliza";
+    url.hash = BF.datos;
+    BF.win = window.open(url.toString(), "brokerfee_" + orden);
+    if (!BF.win){ toast("El navegador bloqueó la pestaña nueva. Permite las ventanas emergentes de este sitio.", 5000); return; }
+    toast("Abriendo el Broker Fee con la misma firma…");
+  });
+
+  window.addEventListener("message", function(ev){
+    if (!BF.win || ev.source !== BF.win) return;
+    if (ev.origin !== location.origin) return;
+    var m = ev.data || {};
+    if (m.type === "bf-ready"){
+      BF.win.postMessage({ type: "bf-firma", png: S.sig ? S.sig.url : "", orden: S.ordenId || "" }, MISMO_SITIO);
+    } else if (m.type === "bf-saved"){
+      $("bfHint").textContent = "✅ Broker Fee guardado en AppSheet: " + (m.name || "");
+      toast("Broker Fee guardado en AppSheet.");
+    }
   });
 
   /* ============================ versiones en Drive ============================ */
