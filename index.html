@@ -155,15 +155,21 @@
   details.cfg[open] summary::before{content:"▾ "; }
   details.cfg .cfgbody{display:flex; flex-direction:column; gap:8px; padding-top:9px}
   details.cfg label{font-size:11px; color:var(--muted); display:block; margin-bottom:3px}
-  .recent{display:grid; grid-template-columns:1fr 1fr; gap:6px}
-  .recent button{
-    padding:4px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer;
-    display:flex; flex-direction:column; align-items:center; gap:3px;
-  }
-  .recent button:hover{border-color:var(--accent)}
-  .recent img{height:34px; width:100%; object-fit:contain}
-  .recent .rid{font-family:"IBM Plex Mono", monospace; font-size:10px; color:#4a4640}
+  /* botones grandes para el usuario de mostrador */
+  .btn.big{min-height:72px; font-size:18px; font-weight:600; border-radius:7px; padding:12px 16px}
+  .btn.draw{background:var(--accent-soft); border:2px solid var(--accent); color:var(--accent)}
+  .btn.draw:hover:not(:disabled){filter:brightness(1.04)}
 
+  /* opciones avanzadas (administrador) */
+  details.adv{border-top:1px solid var(--line); margin-top:8px}
+  details.adv > summary{
+    padding:14px 18px; font-size:11px; font-weight:600; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); cursor:pointer; list-style:none;
+  }
+  details.adv > summary::-webkit-details-marker{display:none}
+  details.adv > summary::before{content:"▸ "}
+  details.adv[open] > summary::before{content:"▾ "}
+  details.adv section.blk{background:var(--panel-2)}
 
   /* ---------- pad para dibujar la firma ---------- */
   .modal{
@@ -285,117 +291,115 @@
     <div class="rail-scroll">
 
       <section class="blk">
-        <h2><span class="num">1</span> Documento</h2>
-        <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
-        <button class="btn wide" id="pdfBtn">Abrir PDF…</button>
-        <div class="filecard" id="pdfCard" hidden>
-          <div>
-            <div class="nm" id="pdfName"></div>
-            <div class="mt mono" id="pdfMeta"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="blk">
-        <h2><span class="num">2</span> Firma</h2>
+        <h2><span class="num">1</span> Firma del cliente</h2>
         <div class="sigbox"><img id="sigPreview" alt="Firma cargada" style="display:none"><span class="empty" id="sigEmpty">sin firma</span></div>
-        <div class="drivebar">
-          <input type="text" id="ordenId" placeholder="ID de DetalleOrden (613bb031)"  autocomplete="off" spellcheck="false">
-          <button class="btn" id="fetchBtn">Traer todo</button>
-        </div>
-        <div class="status" id="driveStatus"><span class="dot"></span><span id="driveMsg">Drive sin conectar</span></div>
-        <div class="recent" id="driveRecent"></div>
-        <button class="btn sm" id="recentBtn">Ver últimas firmas</button>
-        <button class="btn sm" id="lastSigBtn">Usar la última firma</button>
-
-        <button class="btn wide" id="drawBtn">Dibujar la firma aquí…</button>
+        <button class="btn draw big wide" id="drawBtn">✍ Dibujar la firma aquí</button>
+        <p class="hint">Después toca el documento donde va la firma. Arrástrala para moverla y usa la esquina azul para cambiar el tamaño.</p>
         <p class="hint" id="sigInfo"></p>
-        <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
-        <div class="row">
-          <span class="hint" style="flex:none">Tinta</span>
-          <div class="swatches" id="inkSwatches">
-            <button class="sw" data-ink="black" style="background:#101418" aria-pressed="true" title="Negro"></button>
-            <button class="sw" data-ink="blue" style="background:#12327a" aria-pressed="false" title="Azul"></button>
-            <button class="sw" data-ink="orig" style="background:linear-gradient(135deg,#888 50%,#ccc 50%)" aria-pressed="false" title="Original"></button>
-          </div>
-        </div>
-
-        <details class="cfg">
-          <summary>Conexión con Google Drive</summary>
-          <div class="cfgbody">
-            <div>
-              <label for="cfgClient">OAuth Client ID</label>
-              <input type="text" id="cfgClient" placeholder="000000-xxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
-            </div>
-            <div>
-              <label for="cfgFolder">Carpeta DetalleOrden_Images (firmas)</label>
-              <input type="text" id="cfgFolder" value="1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u" autocomplete="off" spellcheck="false">
-            </div>
-            <div>
-              <label for="cfgFiles">Carpeta DetalleOrden_Files_ (PDFs producer)</label>
-              <input type="text" id="cfgFiles" value="1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE" autocomplete="off" spellcheck="false">
-            </div>
-            <div class="row tight">
-              <button class="btn sm" id="cfgSave">Guardar</button>
-              <button class="btn sm" id="connectBtn">Conectar con Google</button>
-            </div>
-            <p class="hint">Registra este origen en Google Cloud → Credentials → tu OAuth client → <em>Authorized JavaScript origins</em>:</p>
-            <p class="hint mono" id="originHint" style="word-break:break-all; color:var(--accent)"></p>
-            <p class="hint">Se guarda solo en este navegador. El acceso a Drive es de solo lectura y el token vive en memoria: al cerrar la pestaña se pierde.</p>
-          </div>
-        </details>
+        <div class="status" id="driveStatus"><span class="dot"></span><span id="driveMsg">Drive sin conectar</span></div>
       </section>
 
       <section class="blk">
-        <h2><span class="num">3</span> Qué vas a colocar</h2>
-        <div class="seg" id="toolSeg">
-          <button data-tool="sig" aria-pressed="true">Firma</button>
-          <button data-tool="date" aria-pressed="false">Fecha</button>
-          <button data-tool="text" aria-pressed="false">Texto</button>
-        </div>
-        <div id="textOpts" hidden>
-          <input type="text" id="textValue" placeholder="Texto a colocar" value="Antonio Lopez Lopez">
-        </div>
-        <div id="dateOpts" hidden>
-          <input type="text" id="dateValue" placeholder="MM/DD/AAAA">
-        </div>
-        <p class="hint">Haz clic sobre el documento para colocarlo. Arrastra para mover, esquina azul para cambiar el tamaño, <span class="mono">Supr</span> para borrar.</p>
-      </section>
-
-      <section class="blk">
-        <h2><span class="num">4</span> Líneas de firma detectadas</h2>
-        <p class="hint" id="findMsg">Abre un PDF para buscarlas.</p>
-        <ul class="findlist" id="findList"></ul>
-        <label class="check"><input type="checkbox" id="withDate" checked> Poner también la fecha al lado</label>
-        <button class="btn wide" id="signAll" disabled>Firmar todas las detectadas</button>
-      </section>
-
-      <section class="blk">
-        <h2><span class="num">5</span> Plantillas</h2>
-        <p class="hint">Acomoda las firmas una vez en un paquete de una compañía y guárdalo. Las posiciones se anclan a la etiqueta de cada línea, así que siguen cayendo bien aunque el paquete traiga más o menos páginas.</p>
-        <div class="drivebar">
-          <input type="text" id="tplName" placeholder="Nombre (National General)" autocomplete="off">
-          <button class="btn" id="tplSave">Guardar</button>
-        </div>
-        <ul class="findlist" id="tplList"></ul>
-        <div class="row tight">
-          <button class="btn sm" id="tplExport">Exportar</button>
-          <button class="btn sm" id="tplImportBtn">Importar</button>
-          <input type="file" id="tplImport" accept="application/json,.json" hidden>
-        </div>
-      </section>
-
-      <section class="blk">
-        <h2><span class="num">6</span> Guardar</h2>
-        <button class="btn primary wide" id="saveDriveBtn" disabled>Guardar en AppSheet</button>
+        <h2><span class="num">2</span> Guardar</h2>
+        <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
         <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
         <button class="btn wide" id="saveBtn" disabled>Descargar PDF firmado</button>
-        <button class="btn wide" id="verBtn" disabled>Versiones del archivo…</button>
         <div class="row tight">
           <button class="btn sm" id="clearBtn">Quitar las firmas de esta sesión</button>
         </div>
-        <p class="hint">Ese botón solo quita lo que colocaste ahora. Para deshacer lo que ya se guardó en Drive, usa Versiones.</p>
+        <p class="hint">Ese botón solo quita lo que colocaste ahora. Para deshacer lo que ya se guardó en Drive, usa Versiones (en Opciones avanzadas).</p>
       </section>
+
+      <details class="adv" id="advPanel">
+        <summary>Opciones avanzadas (administrador)</summary>
+
+        <section class="blk">
+          <h2>Orden de AppSheet</h2>
+          <div class="drivebar">
+            <input type="text" id="ordenId" placeholder="ID de DetalleOrden (613bb031)" autocomplete="off" spellcheck="false">
+            <button class="btn" id="fetchBtn">Traer todo</button>
+          </div>
+          <button class="btn wide" id="verBtn" disabled>Versiones del archivo…</button>
+        </section>
+
+        <section class="blk">
+          <h2>Abrir otro PDF</h2>
+          <input type="file" id="pdfInput" accept="application/pdf,.pdf" hidden>
+          <button class="btn wide" id="pdfBtn">Abrir PDF…</button>
+          <div class="filecard" id="pdfCard" hidden>
+            <div>
+              <div class="nm" id="pdfName"></div>
+              <div class="mt mono" id="pdfMeta"></div>
+            </div>
+          </div>
+          <p class="hint">Un PDF abierto desde aquí no viene de una orden: solo se puede descargar, no guardar en AppSheet.</p>
+        </section>
+
+        <section class="blk">
+          <h2>Qué vas a colocar</h2>
+          <div class="seg" id="toolSeg">
+            <button data-tool="sig" aria-pressed="true">Firma</button>
+            <button data-tool="date" aria-pressed="false">Fecha</button>
+            <button data-tool="text" aria-pressed="false">Texto</button>
+          </div>
+          <div id="textOpts" hidden>
+            <input type="text" id="textValue" placeholder="Texto a colocar">
+          </div>
+          <div id="dateOpts" hidden>
+            <input type="text" id="dateValue" placeholder="MM/DD/AAAA">
+          </div>
+          <p class="hint">Haz clic sobre el documento para colocarlo. Arrastra para mover, esquina azul para cambiar el tamaño, <span class="mono">Supr</span> para borrar.</p>
+        </section>
+
+        <section class="blk">
+          <h2>Líneas de firma detectadas</h2>
+          <p class="hint" id="findMsg">Abre un PDF para buscarlas.</p>
+          <ul class="findlist" id="findList"></ul>
+          <label class="check"><input type="checkbox" id="withDate" checked> Poner también la fecha al lado</label>
+          <button class="btn wide" id="signAll" disabled>Firmar todas las detectadas</button>
+        </section>
+
+        <section class="blk">
+          <h2>Ajustes de la firma</h2>
+          <label class="check"><input type="checkbox" id="clean" checked> Limpiar fondo blanco</label>
+          <div class="row">
+            <span class="hint" style="flex:none">Tinta</span>
+            <div class="swatches" id="inkSwatches">
+              <button class="sw" data-ink="black" style="background:#101418" aria-pressed="true" title="Negro"></button>
+              <button class="sw" data-ink="blue" style="background:#12327a" aria-pressed="false" title="Azul"></button>
+              <button class="sw" data-ink="orig" style="background:linear-gradient(135deg,#888 50%,#ccc 50%)" aria-pressed="false" title="Original"></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="blk">
+          <h2>Conexión con Google Drive</h2>
+          <details class="cfg">
+            <summary>Configurar</summary>
+            <div class="cfgbody">
+              <div>
+                <label for="cfgClient">OAuth Client ID</label>
+                <input type="text" id="cfgClient" placeholder="000000-xxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="cfgFolder">Carpeta DetalleOrden_Images (firmas)</label>
+                <input type="text" id="cfgFolder" value="1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="cfgFiles">Carpeta DetalleOrden_Files_ (PDFs producer)</label>
+                <input type="text" id="cfgFiles" value="1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="row tight">
+                <button class="btn sm" id="cfgSave">Guardar</button>
+                <button class="btn sm" id="connectBtn">Conectar con Google</button>
+              </div>
+              <p class="hint">Registra este origen en Google Cloud → Credentials → tu OAuth client → <em>Authorized JavaScript origins</em>:</p>
+              <p class="hint mono" id="originHint" style="word-break:break-all; color:var(--accent)"></p>
+              <p class="hint">Se guarda solo en este navegador. El token vive en memoria: al cerrar la pestaña se pierde.</p>
+            </div>
+          </details>
+        </section>
+      </details>
 
     </div>
   </aside>
@@ -960,7 +964,6 @@
     for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
 
     S.sig = { bytes: bytes, url: url, w: w, h: h };
-    recordarFirma(url);
     $("sigPreview").src = url;
     $("sigPreview").style.display = "block";
     $("sigEmpty").style.display = "none";
@@ -1000,8 +1003,7 @@
     folderId:  localStorage.getItem("fp_folder_id") || "1wudNi4obQ_FkVJyUBr3QP58b3cUGAx5u",
     filesFolder: localStorage.getItem("fp_files_folder") || "1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE",
     token: null,
-    tokenClient: null,
-    recentUrls: []
+    tokenClient: null
   };
   var SCOPE = "https://www.googleapis.com/auth/drive";
 
@@ -1126,44 +1128,6 @@
     });
   }
 
-  async function showRecent(){
-    if (!DRIVE.folderId){ dstat("Falta el ID de la carpeta.", "err"); return; }
-    var box = $("driveRecent");
-    dstat("Cargando últimas firmas…");
-    try {
-      var files = await driveList("'" + DRIVE.folderId + "' in parents and trashed = false", 8);
-      DRIVE.recentUrls.forEach(function(u){ URL.revokeObjectURL(u); });
-      DRIVE.recentUrls = [];
-      box.innerHTML = "";
-      for (var i = 0; i < files.length; i++){
-        (function(f){
-          var b = document.createElement("button");
-          b.type = "button";
-          b.title = f.name;
-          var im = document.createElement("img");
-          var lb = document.createElement("span");
-          lb.className = "rid";
-          lb.textContent = f.name.split(".")[0];
-          b.appendChild(im); b.appendChild(lb);
-          b.addEventListener("click", async function(){
-            dstat("Cargando " + f.name + "…");
-            try { await useDriveFile(f); dstat("Cargada " + f.name, "on"); }
-            catch(e){ dstat(e.message, "err"); }
-          });
-          box.appendChild(b);
-          driveBlob(f.id).then(function(blob){
-            var u = URL.createObjectURL(blob);
-            DRIVE.recentUrls.push(u);
-            im.src = u;
-          }).catch(function(){});
-        })(files[i]);
-      }
-      dstat(files.length + " firmas recientes", "on");
-    } catch(err){
-      dstat(err.message || "Error consultando Drive", "err");
-    }
-  }
-
   $("cfgClient").value = DRIVE.clientId;
   $("cfgFolder").value = DRIVE.folderId;
   $("cfgFiles").value = DRIVE.filesFolder;
@@ -1196,64 +1160,14 @@
       traerTodo(this.value);
     }
   });
-  $("recentBtn").addEventListener("click", function(){
-    if (!DRIVE.clientId) return pedirConfig();
-    showRecent();
-  });
   $("originHint").textContent = location.origin;
   function pedirConfig(){
-    var d = document.querySelector("details.cfg");
-    if (d) d.open = true;
+    [].forEach.call(document.querySelectorAll("details.adv, details.cfg"), function(d){ d.open = true; });
     dstat("Drive no está conectado: falta crear el OAuth Client ID en Google Cloud y pegarlo aquí abajo.", "err");
     $("cfgClient").focus();
   }
   dstat(DRIVE.clientId ? "Listo para conectar con Google." : "Drive no está conectado. Ábrelo en “Conexión con Google Drive”.");
 
-
-  /* ============================ memoria de la última firma ============================ */
-
-  function recordarFirma(url){
-    try {
-      localStorage.setItem("fp_last_sig", url);
-      var oid = ($("ordenId").value || "").trim();
-      if (oid) localStorage.setItem("fp_sig_" + oid, url);
-    } catch(e){
-      // si se llenó el almacenamiento, tiramos las firmas por orden y dejamos solo la última
-      try {
-        Object.keys(localStorage).forEach(function(k){
-          if (k.indexOf("fp_sig_") === 0) localStorage.removeItem(k);
-        });
-        localStorage.setItem("fp_last_sig", url);
-      } catch(e2){}
-    }
-  }
-
-  function firmaGuardada(oid){
-    try {
-      return (oid && localStorage.getItem("fp_sig_" + oid)) || localStorage.getItem("fp_last_sig");
-    } catch(e){ return null; }
-  }
-
-  function usarFirmaGuardada(url){
-    return new Promise(function(res, rej){
-      var img = new Image();
-      img.onload = function(){ S.rawSig = { img: img }; processSignature(); res(); };
-      img.onerror = function(){ rej(new Error("La firma guardada no se pudo leer.")); };
-      img.src = url;
-    });
-  }
-
-  $("lastSigBtn").addEventListener("click", async function(){
-    var oid = ($("ordenId").value || "").trim();
-    var propia = false;
-    try { propia = !!(oid && localStorage.getItem("fp_sig_" + oid)); } catch(e){}
-    var url = firmaGuardada(oid);
-    if (!url){ toast("Todavía no hay ninguna firma guardada en este navegador."); return; }
-    try {
-      await usarFirmaGuardada(url);
-      dstat(propia ? ("Firma recuperada de la orden " + oid) : "Última firma usada", "on");
-    } catch(err){ dstat(err.message, "err"); }
-  });
 
   /* ============================ PDF producer desde Drive ============================ */
 
@@ -1286,154 +1200,16 @@
       var pdf = await fetchProducerById(id);
       dstat("PDF: " + pdf.name + " — buscando firma…");
       await fetchSignatureById(id);
-      if (!S.sig){
-        var guardada = firmaGuardada(id);
-        if (guardada){
-          try {
-            await usarFirmaGuardada(guardada);
-            dstat("No había firma en Drive para " + id + ": usé la última guardada en este navegador.", "err");
-          } catch(e){}
-        }
-      }
-      var tplName = localStorage.getItem("fp_tpl_default");
-      if (tplName && TPL.all()[tplName]) applyTemplate(tplName);
     } catch(err){
       dstat(err.message || "Error consultando Drive", "err");
     }
   }
-
-  /* ============================ plantillas ============================ */
-
-  var TPL = {
-    all: function(){
-      try { return JSON.parse(localStorage.getItem("fp_templates") || "{}"); }
-      catch(e){ return {}; }
-    },
-    put: function(obj){ localStorage.setItem("fp_templates", JSON.stringify(obj)); }
-  };
-
-  function nearestAnchor(st){
-    var best = null, bd = 1e9;
-    S.finds.forEach(function(f){
-      if (f.page !== st.page) return;
-      var du = st.u - f.u, dv = st.v - f.v;
-      var d = Math.hypot(du, dv * 1.6);      // pesamos la distancia vertical
-      if (d < bd){ bd = d; best = f; }
-    });
-    return (best && bd < 0.30) ? best : null;
-  }
-
-  function saveTemplate(){
-    var name = ($("tplName").value || "").trim();
-    if (!name){ toast("Ponle nombre a la plantilla."); return; }
-    if (!S.stamps.length){ toast("No hay nada colocado que guardar."); return; }
-    var items = S.stamps.map(function(st){
-      var a = nearestAnchor(st);
-      return {
-        type: st.type, dyn: !!st.dyn, text: st.text || "",
-        w: st.w, h: st.h, size: st.size,
-        anchor: a ? a.key : null,
-        dU: a ? (st.u - a.u) : null,
-        dV: a ? (st.v - a.v) : null,
-        page: st.page, u: st.u, v: st.v
-      };
-    });
-    var all = TPL.all();
-    all[name] = { name: name, saved: new Date().toISOString().slice(0, 10), items: items };
-    TPL.put(all);
-    localStorage.setItem("fp_tpl_default", name);
-    renderTemplates();
-    toast('Plantilla "' + name + '" guardada con ' + items.length + " elementos.");
-  }
-
-  function applyTemplate(name){
-    var t = TPL.all()[name];
-    if (!t){ toast("No existe esa plantilla."); return; }
-    var byKey = {};
-    S.finds.forEach(function(f){ byKey[f.key] = f; });
-
-    var ok = 0, byCoord = 0, skipped = 0;
-    t.items.forEach(function(it){
-      var page, u, v;
-      var a = it.anchor ? byKey[it.anchor] : null;
-      if (a){ page = a.page; u = a.u + it.dU; v = a.v + it.dV; ok++; }
-      else if (S.pages[it.page]){ page = it.page; u = it.u; v = it.v; byCoord++; }
-      else { skipped++; return; }
-
-      if (it.type === "sig"){
-        if (!S.sig){ skipped++; return; }
-        var st = { id:S.seq++, type:"sig", page:page, u:u, v:v, w:it.w, h:it.h };
-        S.stamps.push(st); mountStamp(st);
-      } else {
-        var txt = it.dyn ? ($("dateValue").value || todayUS()) : it.text;
-        var t2 = { id:S.seq++, type:"text", page:page, u:u, v:v, size:it.size, text:txt, dyn:it.dyn };
-        S.stamps.push(t2); mountStamp(t2);
-      }
-    });
-    select(null); updateCount();
-    var msg = ok + " por ancla";
-    if (byCoord) msg += ", " + byCoord + " por coordenada fija (revisar)";
-    if (skipped) msg += ", " + skipped + " sin colocar";
-    dstat('Plantilla "' + name + '": ' + msg, byCoord || skipped ? "err" : "on");
-    toast('Plantilla aplicada — ' + msg + ".");
-  }
-
-  function renderTemplates(){
-    var all = TPL.all(), ul = $("tplList"), def = localStorage.getItem("fp_tpl_default");
-    ul.innerHTML = "";
-    var names = Object.keys(all);
-    if (!names.length){
-      var li0 = document.createElement("li");
-      li0.innerHTML = '<span class="hint" style="padding:4px 8px">Ninguna guardada todavía.</span>';
-      ul.appendChild(li0);
-      return;
-    }
-    names.forEach(function(n){
-      var li = document.createElement("li");
-      var b = document.createElement("button");
-      b.innerHTML = '<span class="pg">' + all[n].items.length + '</span><span class="lbl"></span>';
-      b.querySelector(".lbl").textContent = n + (n === def ? " · por defecto" : "");
-      b.title = "Aplicar " + n;
-      b.addEventListener("click", function(){ applyTemplate(n); localStorage.setItem("fp_tpl_default", n); renderTemplates(); });
-      var x = document.createElement("span");
-      x.className = "done"; x.textContent = "✕"; x.title = "Borrar";
-      x.style.cursor = "pointer"; x.style.color = "var(--seal)";
-      x.addEventListener("click", function(ev){
-        ev.stopPropagation();
-        var a2 = TPL.all(); delete a2[n]; TPL.put(a2);
-        if (def === n) localStorage.removeItem("fp_tpl_default");
-        renderTemplates();
-      });
-      b.appendChild(x);
-      li.appendChild(b); ul.appendChild(li);
-    });
-  }
-
-  $("tplSave").addEventListener("click", saveTemplate);
-  $("tplExport").addEventListener("click", function(){
-    var blob = new Blob([JSON.stringify(TPL.all(), null, 2)], { type: "application/json" });
-    download(blob, "plantillas-firma.json");
-  });
-  $("tplImportBtn").addEventListener("click", function(){ $("tplImport").click(); });
-  $("tplImport").addEventListener("change", async function(e){
-    var f = e.target.files[0]; if (!f) return;
-    try {
-      var inc = JSON.parse(await f.text());
-      var all = TPL.all();
-      Object.keys(inc).forEach(function(k){ all[k] = inc[k]; });
-      TPL.put(all); renderTemplates();
-      toast(Object.keys(inc).length + " plantilla(s) importadas.");
-    } catch(err){ toast("Ese archivo no es una exportación válida."); }
-  });
-  renderTemplates();
 
   /* ============================ enlace desde AppSheet ============================ */
 
   (function fromUrl(){
     var q = new URLSearchParams(location.search);
     var orden = q.get("orden") || q.get("id");
-    var tpl = q.get("plantilla");
-    if (tpl) localStorage.setItem("fp_tpl_default", tpl);
     if (!orden) return;
     S.fromUrl = true;
     $("ordenId").value = orden;
@@ -1873,8 +1649,8 @@
     page.drawLine({ start: { x: 56, y: 688 }, end: { x: 556, y: 688 }, thickness: 1, color: soft });
 
     var body = [
-      "Este es un documento de muestra para probar la herramienta. Abre tu propio PDF",
-      "con el boton “Abrir PDF” del panel izquierdo y la muestra se reemplaza.",
+      "Este es un documento de muestra para probar la herramienta. Normalmente el PDF",
+      "llega desde la orden de AppSheet; tambien se puede abrir en Opciones avanzadas.",
       "",
       "El cliente autoriza a 805 MultiServices a tramitar el servicio descrito y confirma",
       "que la informacion proporcionada es correcta."
