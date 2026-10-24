@@ -197,6 +197,11 @@
     padding:10px 12px; border-radius:0 5px 5px 0; font-size:12.5px;
   }
   .kv{font-family:"IBM Plex Mono", monospace; font-size:12px; word-break:break-all}
+  .okbox{
+    background:#e3f1e8; border-left:3px solid var(--ok); color:#1f4d31;
+    padding:10px 12px; border-radius:0 5px 5px 0; font-size:13.5px; font-weight:600;
+  }
+  .okbox ul, .warn ul{margin:6px 0 0; padding-left:18px; font-weight:400}
 
   /* ---------- workspace ---------- */
   .work{display:flex; flex-direction:column; overflow:hidden; background:var(--bg)}
@@ -397,6 +402,22 @@
                 <label for="cfgFiles">Carpeta DetalleOrden_Files_ (PDFs producer)</label>
                 <input type="text" id="cfgFiles" value="1iThIZ1q2Q0Jx6YaojoHJL-ONDik-rNHE" autocomplete="off" spellcheck="false">
               </div>
+              <div>
+                <label for="cfgSheet">Hoja de cálculo CCIAPP (ID)</label>
+                <input type="text" id="cfgSheet" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="cfgTab">Pestaña de la tabla</label>
+                <input type="text" id="cfgTab" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="cfgCol">Columna del PDF producer (original)</label>
+                <input type="text" id="cfgCol" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="cfgColF">Columna del PDF firmado</label>
+                <input type="text" id="cfgColF" autocomplete="off" spellcheck="false">
+              </div>
               <div class="row tight">
                 <button class="btn sm" id="cfgSave">Guardar</button>
                 <button class="btn sm" id="connectBtn">Conectar con Google</button>
@@ -424,7 +445,7 @@
     <div class="savedock" id="saveDock" hidden>
       <h2>¿Ya revisaste todas las hojas?</h2>
       <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
-      <p class="hint" id="saveDriveHint">Reemplaza el PDF del registro en Drive. Solo se activa si el documento vino de una orden.</p>
+      <p class="hint" id="saveDriveHint">Guarda el PDF firmado en la columna [⚫Producer_Firmado] de la orden. Solo se activa si el documento vino de una orden.</p>
     </div>
   </main>
 </div>
@@ -445,10 +466,11 @@
 <div class="modal" id="saveModal" hidden>
   <div class="sheet" style="width:min(560px,100%)">
     <h3>Guardar en AppSheet</h3>
-    <p class="hint">Se va a reemplazar el contenido de este archivo en Drive:</p>
+    <div id="saveCheck"></div>
+    <p class="hint">El PDF original no se toca. El firmado se guarda como archivo nuevo en la columna:</p>
     <p class="kv" id="saveFile"></p>
     <p class="hint" id="saveDetail"></p>
-    <div class="warn">El registro de AppSheet ya apunta a ese archivo, así que ahí verás el firmado. La versión sin firmar queda en el historial de Drive: clic derecho sobre el archivo → <b>Gestionar versiones</b> (Drive la conserva 30 días).</div>
+
     <div class="padbar">
       <span style="flex:1"></span>
       <button class="btn sm" id="saveCancel">Cancelar</button>
@@ -839,7 +861,13 @@
       !S.bytes      ? "Abre primero un documento."
     : !S.driveFile  ? "Este documento no vino de una orden. Ábrelo con el botón de AppSheet o escribiendo el ID de DetalleOrden."
     : !S.stamps.length ? "Falta colocar la firma: toca el documento donde va."
-    : "Listo. Se guardará sobre " + S.driveFile.name;
+    : (function(){
+        var r = revisarFirmas();
+        if (!r.total) return "No se detectaron líneas de firma: revisa a mano que estén todas (" + r.sigs + " firma(s) colocadas).";
+        return r.faltan.length
+          ? "⚠️ Faltan firmas: " + r.firmadas + " de " + r.total + " líneas firmadas."
+          : "✅ " + r.total + " de " + r.total + " líneas de firma del cliente firmadas.";
+      })();
   }
 
   document.addEventListener("keydown", function(ev){
@@ -1044,6 +1072,13 @@
     tokenClient: null
   };
   var SCOPE = "https://www.googleapis.com/auth/drive";
+  // hoja de AppSheet (CCIAPP) donde está la columna del PDF producer
+  var SHEET = {
+    id:  localStorage.getItem("bf_sheet_id")     || "13n14htWYPBgfzNOSfCzOKrFITxStsiURs3l-EPbVDpY",
+    tab: localStorage.getItem("bf_tab")          || "DetalleOrden",
+    col: localStorage.getItem("fp_col_producer") || "⚫Producer",          // PDF original (solo se lee)
+    colFirmado: localStorage.getItem("fp_col_firmado") || "⚫Producer_Firmado"   // aquí se guarda el firmado
+  };
 
   function dstat(msg, kind){
     var el = $("driveStatus");
@@ -1129,9 +1164,13 @@
 
   $("cfgClient").value = DRIVE.clientId;
   $("cfgFiles").value = DRIVE.filesFolder;
+  $("cfgSheet").value = SHEET.id; $("cfgTab").value = SHEET.tab; $("cfgCol").value = SHEET.col; $("cfgColF").value = SHEET.colFirmado;
   $("cfgSave").addEventListener("click", function(){
     DRIVE.clientId = $("cfgClient").value.trim();
     DRIVE.filesFolder = $("cfgFiles").value.trim();
+    SHEET.id = $("cfgSheet").value.trim(); SHEET.tab = $("cfgTab").value.trim(); SHEET.col = $("cfgCol").value.trim(); SHEET.colFirmado = $("cfgColF").value.trim();
+    localStorage.setItem("bf_sheet_id", SHEET.id); localStorage.setItem("bf_tab", SHEET.tab);
+    localStorage.setItem("fp_col_producer", SHEET.col); localStorage.setItem("fp_col_firmado", SHEET.colFirmado);
     localStorage.setItem("fp_files_folder", DRIVE.filesFolder);
     localStorage.setItem("fp_client_id", DRIVE.clientId);
     DRIVE.token = null;
@@ -1176,10 +1215,18 @@
       var all = await driveList(base, 1000);
       files = all.filter(function(f){ return f.name.toLowerCase().indexOf(id.toLowerCase()) === 0; });
     }
-    files = files.filter(function(f){ return /\.pdf$/i.test(f.name); });
+    // solo el original: <ID>.⚫Producer.<hora>.pdf  (fuera el firmado, el BrokerFee, etc.)
+    var marca = "." + SHEET.col.toLowerCase() + ".";
+    files = files.filter(function(f){ return /\.pdf$/i.test(f.name) && f.name.toLowerCase().indexOf(marca) !== -1; });
     if (!files.length) throw new Error("No hay PDF producer para " + id + ".");
     files.sort(function(a, b){ return (b.createdTime || "").localeCompare(a.createdTime || ""); });
+    // si se puede leer la hoja, se abre exactamente el archivo que tiene la orden en AppSheet
     var f = files[0];
+    try {
+      var w = await findCell(id, SHEET.col);
+      var fn = String(w.current || "").split("/").pop();
+      for (var i = 0; i < files.length; i++) if (files[i].name === fn){ f = files[i]; break; }
+    } catch(e){}
     var blob = await driveBlob(f.id);
     var buf = await blob.arrayBuffer();
     await openPdf(new Uint8Array(buf), f.name, false);
@@ -1193,6 +1240,7 @@
     if (!id){ dstat("Escribe el ID de DetalleOrden.", "err"); return; }
     dstat("Buscando " + id + "…");
     try {
+      S.ordenId = id;
       var pdf = await fetchProducerById(id);
       // cada orden empieza sin firma: la firma del cliente anterior nunca pasa a otra orden
       S.sig = null; S.rawSig = null;
@@ -1372,14 +1420,17 @@
 
   /* ============================ guardar en Drive ============================ */
 
-  async function subirADrive(bytes){
+  async function subirADrive(bytes, nombre){
     var tok = await driveAuth();
     var url = "https://www.googleapis.com/upload/drive/v3/files/" + S.driveFile.id
-            + "?uploadType=media&fields=id,name,modifiedTime";
+            + "?uploadType=multipart&fields=id,name,modifiedTime";
+    var form = new FormData();
+    form.append("metadata", new Blob([JSON.stringify({ name: nombre || S.driveFile.name })], { type: "application/json" }));
+    form.append("file", new Blob([bytes], { type: "application/pdf" }));
     var opts = {
       method: "PATCH",
-      headers: { Authorization: "Bearer " + tok, "Content-Type": "application/pdf" },
-      body: bytes
+      headers: { Authorization: "Bearer " + tok },
+      body: form
     };
     var r = await fetch(url, opts);
     if (r.status === 401){
@@ -1395,12 +1446,153 @@
     return await r.json();
   }
 
-  $("saveDriveBtn").addEventListener("click", function(){
+  /* ---------- revisión de firmas ---------- */
+
+  // Cada línea de firma del cliente detectada debe tener una firma apoyada en ella.
+  function revisarFirmas(){
+    var sigs = S.stamps.filter(function(x){ return x.type === "sig"; });
+    var faltan = [];
+    S.finds.forEach(function(f){
+      var x0 = f.inline ? f.u1 - 0.05 : f.u - 0.05;
+      var base = f.inline ? f.v : (f.v - f.h * 1.45);   // donde se apoya la firma
+      var ok = sigs.some(function(st){
+        if (st.page !== f.page) return false;
+        var dv = Math.abs((st.v + st.h) - base);
+        var hor = (st.u + st.w) > x0 && st.u < x0 + 0.6;
+        return dv < 0.05 && hor;
+      });
+      if (!ok) faltan.push(f);
+    });
+    var total = S.finds.length, firmadas = total - faltan.length;
+    var estado = !total ? (sigs.length ? "REVISAR_" + sigs.length : null)
+               : faltan.length ? "INCOMPLETO_" + firmadas + "de" + total
+               : "FIRMADO";
+    return { total: total, firmadas: firmadas, faltan: faltan, estado: estado, sigs: sigs.length };
+  }
+
+  /* ---------- hoja de cálculo (celda [⚫Producer] de la orden) ---------- */
+
+
+  async function gsend(url, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers || {}, { Authorization: "Bearer " + (await driveAuth()) });
+    var r = await fetch(url, opts);
+    if (r.status === 401){
+      DRIVE.token = null;
+      opts.headers.Authorization = "Bearer " + (await driveAuth());
+      r = await fetch(url, opts);
+    }
+    if (!r.ok){
+      var txt = "";
+      try { txt = (await r.json()).error.message; } catch(e){}
+      if (/sheets\.googleapis/.test(url) && /has not been used|is disabled/i.test(txt))
+        txt = "Falta activar la Google Sheets API en el proyecto de Google Cloud.";
+      throw new Error("Google respondió " + r.status + (txt ? ": " + txt : ""));
+    }
+    return r;
+  }
+  function colLetter(i){
+    var t = ""; i++;
+    while (i > 0){ var m = (i - 1) % 26; t = String.fromCharCode(65 + m) + t; i = Math.floor((i - 1) / 26); }
+    return t;
+  }
+  function rng(a1){ return encodeURIComponent("'" + SHEET.tab.replace(/'/g, "''") + "'!" + a1); }
+  function SH(){ return "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET.id; }
+
+  async function findCell(orden, columna){
+    var hdr = await (await gsend(SH() + "/values/" + rng("1:1"))).json();
+    var heads = ((hdr.values || [])[0] || []).map(function(h){ return String(h).trim(); });
+    var ci = heads.indexOf(columna.trim());
+    if (ci < 0) throw new Error('No encontré la columna "' + columna + '" en la pestaña ' + SHEET.tab + ". Revisa que exista en la hoja, con ese nombre exacto.");
+    var cand = [0];
+    heads.forEach(function(h, i){ if (i > 0 && /^id/i.test(h)) cand.push(i); });
+    for (var c = 0; c < cand.length; c++){
+      var L = colLetter(cand[c]);
+      var col = await (await gsend(SH() + "/values/" + rng(L + ":" + L))).json();
+      var hits = [];
+      (col.values || []).forEach(function(r, i){ if (i > 0 && String(r[0] || "").trim() === orden) hits.push(i + 1); });
+      if (hits.length > 1) throw new Error("La orden " + orden + " aparece " + hits.length + " veces en la hoja.");
+      if (hits.length === 1){
+        var cell = colLetter(ci) + hits[0];
+        var cur = await (await gsend(SH() + "/values/" + rng(cell))).json();
+        return { cell: cell, current: ((cur.values || [])[0] || [])[0] || "" };
+      }
+    }
+    throw new Error("No encontré la orden " + orden + " en la pestaña " + SHEET.tab + ".");
+  }
+  async function writeCell(cell, value){
+    await gsend(SH() + "/values/" + rng(cell) + "?valueInputOption=RAW", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values: [[value]] })
+    });
+  }
+  function hhmmssUTC(d){   // AppSheet nombra sus archivos con la hora UTC
+    var p2 = function(n){ return (n < 10 ? "0" : "") + n; };
+    return p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + p2(d.getUTCSeconds());
+  }
+
+  async function subirNuevo(bytes, name){
+    var form = new FormData();
+    form.append("metadata", new Blob([JSON.stringify({ name: name, mimeType: "application/pdf", parents: [DRIVE.filesFolder] })], { type: "application/json" }));
+    form.append("file", new Blob([bytes], { type: "application/pdf" }));
+    var r = await gsend("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name", { method: "POST", body: form });
+    return await r.json();
+  }
+
+  // El original de [⚫Producer] no se toca. El firmado se sube como archivo nuevo
+  // y su ruta se escribe en [⚫Producer_Firmado] de la misma orden.
+  async function guardarFirmado(bytes, where){
+    var orden = S.ordenId || S.driveFile.name.split(".")[0];
+    var name = orden + "." + SHEET.colFirmado + "." + hhmmssUTC(new Date()) + ".pdf";
+    var f = await subirNuevo(bytes, name);
+    var ruta = "DetalleOrden_Files_/" + f.name;
+    try {
+      await writeCell(where.cell, ruta);
+    } catch(err){
+      throw new Error("El PDF se subió a Drive (" + f.name + ") pero no pude ponerlo en AppSheet: " + err.message);
+    }
+    return { name: f.name, ruta: ruta };
+  }
+
+  var DESTINO = null;   // celda [⚫Producer_Firmado] de la orden, se busca al abrir el aviso
+
+  $("saveDriveBtn").addEventListener("click", async function(){
     if (!S.driveFile){ toast("Este documento no vino de una orden de AppSheet."); return; }
-    var firmas = S.stamps.filter(function(x){ return x.type === "sig"; }).length;
-    var textos = S.stamps.length - firmas;
-    $("saveFile").textContent = S.driveFile.name;
-    $("saveDetail").textContent = S.pages.length + " páginas · " + firmas + " firma(s) y " + textos + " texto(s) colocados.";
+    var btn = this;
+    btn.disabled = true; btn.textContent = "Revisando…";
+    var orden = S.ordenId || S.driveFile.name.split(".")[0];
+    try {
+      DESTINO = await findCell(orden, SHEET.colFirmado);
+    } catch(err){
+      DESTINO = null;
+      dstat(err.message, "err");
+      toast("No se puede guardar: " + err.message, 6000);
+      btn.textContent = "💾 Guardar en AppSheet"; updateCount();
+      return;
+    }
+    btn.textContent = "💾 Guardar en AppSheet"; updateCount();
+    var r = revisarFirmas();
+    var box = $("saveCheck");
+    if (r.total && !r.faltan.length){
+      box.className = "okbox";
+      box.textContent = "✅ Firmas completas: " + r.total + " de " + r.total + " líneas de firma del cliente.";
+    } else if (r.total){
+      box.className = "warn";
+      box.innerHTML = "<b>⚠️ Faltan firmas: " + r.firmadas + " de " + r.total + ".</b> Sin firma:<ul></ul>Revisa esas páginas antes de guardar.";
+      var ul = box.querySelector("ul");
+      r.faltan.forEach(function(f){
+        var li = document.createElement("li");
+        li.textContent = "Página " + (f.page + 1) + ": " + f.label;
+        ul.appendChild(li);
+      });
+    } else {
+      box.className = "warn";
+      box.textContent = "No se detectaron líneas de firma en este PDF: confirma a mano que estén todas las firmas.";
+    }
+    var firmas = r.sigs, textos = S.stamps.length - firmas;
+    $("saveFile").textContent = "[" + SHEET.colFirmado + "] ← " + orden + "." + SHEET.colFirmado + ".<hora>.pdf";
+    $("saveDetail").textContent = S.pages.length + " páginas · " + firmas + " firma(s) y " + textos + " texto(s) colocados."
+      + (DESTINO.current ? " Esa columna ya tenía un archivo firmado: se reemplaza en la columna y el anterior se queda en Drive." : "");
     $("saveModal").hidden = false;
   });
   $("saveCancel").addEventListener("click", function(){ $("saveModal").hidden = true; });
@@ -1411,11 +1603,11 @@
     b.disabled = true; b.textContent = "Guardando…";
     try {
       var out = await buildSignedPdf();
-      var res = await subirADrive(out);
+      var res = await guardarFirmado(out, DESTINO);
       $("saveModal").hidden = true;
-      dstat("Guardado en Drive: " + res.name, "on");
-      $("saveDriveHint").textContent = "Guardado. Abre el registro en AppSheet para verlo.";
-      toast("Guardado en el registro. El PDF del cliente ya está firmado.");
+      dstat("Guardado en [" + SHEET.colFirmado + "]: " + res.name, "on");
+      $("saveDriveHint").textContent = "✅ Guardado en [" + SHEET.colFirmado + "]. Sincroniza AppSheet para verlo.";
+      toast("Documento firmado guardado en AppSheet.");
     } catch(err){
       dstat(err.message || "No se pudo guardar", "err");
       toast("No se pudo guardar: " + (err.message || "error"), 5000);
