@@ -160,6 +160,15 @@
   .btn.draw{background:var(--accent-soft); border:2px solid var(--accent); color:var(--accent)}
   .btn.draw:hover:not(:disabled){filter:brightness(1.04)}
   .btn.signdoc{background:var(--ok); border-color:var(--ok); color:#fff}
+  /* botón ya guardado: letras verdes como el format rule "✅ Firmado" de AppSheet */
+  .btn.firmado, .btn.firmado:disabled{
+    background:#fff; border:2px solid #2E7D32; color:#2E7D32; font-weight:700; opacity:1;
+  }
+  /* botones grandes y centrados en las ventanas de confirmación */
+  .padbar.centro{justify-content:center; gap:14px}
+  .btn.conf{min-width:170px; min-height:54px; font-size:17px; font-weight:600}
+  /* aviso de arriba para traer la orden */
+  .traer{padding:16px 18px; border-bottom:1px solid var(--line); background:var(--accent-soft)}
   .btn.signdoc:hover:not(:disabled){filter:brightness(1.08)}
 
   /* opciones avanzadas (administrador) */
@@ -302,6 +311,11 @@
       <span class="sub">805</span>
     </div>
     <div class="rail-scroll">
+
+      <div class="traer" id="traerBox" hidden>
+        <p class="hint" id="traerMsg" style="margin-bottom:10px">Google necesita un clic tuyo para abrir la orden.</p>
+        <button class="btn primary big wide" id="traerBtn">Traer la orden</button>
+      </div>
 
       <section class="blk">
         <h2><span class="num">1</span> Firma del cliente</h2>
@@ -473,10 +487,9 @@
     <p class="kv" id="saveFile"></p>
     <p class="hint" id="saveDetail"></p>
 
-    <div class="padbar">
-      <span style="flex:1"></span>
-      <button class="btn sm" id="saveCancel">Cancelar</button>
-      <button class="btn primary" id="saveOk">Sí, guardar</button>
+    <div class="padbar centro">
+      <button class="btn conf" id="saveCancel">Cancelar</button>
+      <button class="btn primary conf" id="saveOk">Sí, guardar</button>
     </div>
   </div>
 </div>
@@ -496,8 +509,10 @@
       <span style="flex:1"></span>
       <button class="btn sm" id="padUndo">Deshacer</button>
       <button class="btn sm" id="padClear">Borrar</button>
-      <button class="btn sm" id="padCancel">Cancelar</button>
-      <button class="btn primary" id="padUse">Usar esta firma</button>
+    </div>
+    <div class="padbar centro">
+      <button class="btn conf" id="padCancel">Cancelar</button>
+      <button class="btn primary conf" id="padUse">Usar esta firma</button>
     </div>
   </div>
 </div>
@@ -854,11 +869,24 @@
     if (S.sel === st) S.sel = null;
     updateCount();
   }
+  // huella de lo colocado: si cambia después de guardar, el botón vuelve a "Guardar"
+  function clavePuestos(){
+    return JSON.stringify(S.stamps.map(function(x){ return [x.page, +x.u.toFixed(4), +x.v.toFixed(4), x.w, x.type, x.text || ""]; }));
+  }
+  function marcarFirmado(si){
+    var b = $("saveDriveBtn"); if (!b) return;
+    b.classList.toggle("firmado", !!si);
+    b.classList.toggle("primary", !si);
+    b.textContent = si ? "✅ Firmado" : "💾 Guardar en AppSheet";
+    b.title = si ? "Ya está guardado. Si cambias algo, el botón vuelve a Guardar." : "";
+  }
+
   function updateCount(){
     if (typeof syncBf === "function") try { syncBf(); } catch(e){}
     $("placedCount").textContent = S.stamps.length + (S.stamps.length === 1 ? " elemento colocado" : " elementos colocados");
     $("saveBtn").disabled = S.stamps.length === 0 || !S.bytes;
     $("saveDriveBtn").disabled = S.stamps.length === 0 || !S.bytes || !S.driveFile;
+    if (S.guardadoKey && S.guardadoKey !== clavePuestos()){ S.guardadoKey = null; marcarFirmado(false); }
     $("verBtn").disabled = !S.driveFile;
     $("saveDriveHint").textContent =
       !S.bytes      ? "Abre primero un documento."
@@ -1245,6 +1273,7 @@
     dstat("Buscando " + id + "…");
     try {
       S.ordenId = id;
+      S.guardadoKey = null; marcarFirmado(false);
       if (typeof BF !== "undefined"){ BF.datosHoja = null; }
       var pdf = await fetchProducerById(id);
       // cada orden empieza sin firma: la firma del cliente anterior nunca pasa a otra orden
@@ -1266,24 +1295,28 @@
     S.fromUrl = true;
     $("ordenId").value = orden;
 
+    // nombre del cliente opcional en la liga (&cliente=...) para el texto del botón
+    var cliente = (q.get("cliente") || "").trim();
+
     function pedirClic(motivo){
-      $("topDoc").textContent = "Orden " + orden;
+      $("topDoc").textContent = cliente ? ("Orden de " + cliente) : ("Orden " + orden);
       limpiarStage();
-      var box = document.createElement("div");
-      box.className = "empty-stage";
-      var p = document.createElement("p");
-      p.textContent = motivo || "Google necesita un clic tuyo para abrir su ventana.";
-      var b = document.createElement("button");
-      b.className = "btn primary";
-      b.style.marginTop = "14px";
-      b.textContent = "Traer la orden " + orden;
-      b.addEventListener("click", function(){
+      var aviso = document.createElement("p");
+      aviso.className = "empty-stage";
+      aviso.textContent = "Oprime el botón de arriba para traer el documento.";
+      stage.appendChild(aviso);
+      $("traerMsg").textContent = motivo || "Google necesita un clic tuyo para abrir la orden.";
+      var b = $("traerBtn");
+      b.textContent = cliente ? ("Traer la orden de " + cliente) : ("Traer la orden " + orden);
+      b.onclick = function(){
+        $("traerBox").hidden = true;
         limpiarStage();
         $("topDoc").textContent = "Cargando desde Drive…";
         traerTodo(orden);
-      });
-      box.appendChild(p); box.appendChild(b);
-      stage.appendChild(box);
+      };
+      $("traerBox").hidden = false;
+      document.querySelector(".rail-scroll").scrollTop = 0;
+      window.scrollTo(0, 0);
       b.focus();
     }
 
@@ -1605,10 +1638,10 @@
       DESTINO = null;
       dstat(err.message, "err");
       toast("No se puede guardar: " + err.message, 6000);
-      btn.textContent = "💾 Guardar en AppSheet"; updateCount();
+      marcarFirmado(!!S.guardadoKey); updateCount();
       return;
     }
-    btn.textContent = "💾 Guardar en AppSheet"; updateCount();
+    marcarFirmado(!!S.guardadoKey); updateCount();
     var r = revisarFirmas();
     var box = $("saveCheck");
     if (r.total && !r.faltan.length){
@@ -1645,6 +1678,8 @@
       $("saveModal").hidden = true;
       dstat("Guardado en [" + SHEET.colFirmado + "]: " + res.name, "on");
       $("saveDriveHint").textContent = "✅ Guardado en [" + SHEET.colFirmado + "]. Sincroniza AppSheet para verlo.";
+      S.guardadoKey = clavePuestos();
+      marcarFirmado(true);
       toast("Documento firmado guardado en AppSheet.");
     } catch(err){
       dstat(err.message || "No se pudo guardar", "err");
