@@ -474,8 +474,8 @@
       <h2>¿Ya revisaste todas las hojas?</h2>
       <button class="btn primary big wide" id="saveDriveBtn" disabled>✅ Aceptar y guardar en AppSheet</button>
       <p class="hint" id="saveDriveHint">Guarda el PDF firmado en la columna [⚫Producer_Firmado] de la orden. Solo se activa si el documento vino de una orden.</p>
-      <button class="btn signdoc big wide" id="bfBtn" disabled>📄 Firmar Broker Fee con esta firma</button>
-      <p class="hint" id="bfHint">Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.</p>
+      <button class="btn signdoc big wide" id="bfBtn" disabled hidden>📄 Firmar Broker Fee con esta firma</button>
+      <p class="hint" id="bfHint" hidden>Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.</p>
     </div>
   </main>
 </div>
@@ -1743,15 +1743,19 @@
   function syncBf(){
     var b = $("bfBtn"); if (!b) return;
     var orden = S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : "");
-    b.disabled = !S.sig || !orden;
-    $("bfHint").textContent =
-        !orden  ? "Solo para documentos que vienen de una orden de AppSheet."
-      : !S.sig  ? "Primero dibuja la firma del cliente."
+    // El Broker Fee solo aparece cuando la póliza ya está firmada y guardada en AppSheet
+    // (y no se ha movido nada después de guardar).
+    var listo = !!orden && !!S.sig && !!S.guardadoKey && S.guardadoKey === clavePuestos();
+    b.hidden = !listo; $("bfHint").hidden = !listo;
+    b.disabled = !listo;
+    $("bfHint").textContent = (BF.guardado && BF.guardado.orden === orden)
+      ? "✅ Broker Fee guardado en AppSheet: " + BF.guardado.name
       : "Abre el Broker Fee de esta orden con la misma firma; el nombre y la fecha se toman de la orden.";
   }
 
   $("bfBtn").addEventListener("click", function(){
     if (!S.sig){ toast("Primero dibuja la firma del cliente."); return; }
+    if (!S.guardadoKey){ toast("Primero guarda la póliza firmada en AppSheet."); return; }
     var orden = S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : "");
     var url = new URL("../BrokerFee/", location.href);
     url.search = "?orden=" + encodeURIComponent(orden) + "&firma=poliza";
@@ -1781,7 +1785,8 @@
         enviar(null);
       }).then(function(){ BF.leyendo = false; });
     } else if (m.type === "bf-saved"){
-      $("bfHint").textContent = "✅ Broker Fee guardado en AppSheet: " + (m.name || "");
+      BF.guardado = { orden: S.ordenId || (S.driveFile ? S.driveFile.name.split(".")[0] : ""), name: m.name || "" };
+      $("bfHint").textContent = "✅ Broker Fee guardado en AppSheet: " + BF.guardado.name;
       toast("Broker Fee guardado en AppSheet.");
     }
   });
