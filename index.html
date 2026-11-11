@@ -293,6 +293,20 @@
   .steps{margin:0; padding-left:16px; font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:5px}
 
   @media (prefers-reduced-motion: reduce){*{transition:none !important}}
+  /* teléfono acostado: el recuadro de firma ocupa toda la pantalla */
+  @media (orientation: landscape) and (max-height: 520px){
+    #drawModal{padding:0}
+    #drawModal .sheet{
+      width:100%; height:100dvh; max-height:100dvh; border:0; border-radius:0; box-shadow:none;
+      padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+      display:grid; grid-template-columns:1fr auto; grid-template-rows:1fr auto; gap:6px 10px;
+    }
+    #drawModal h3, #drawModal .sheet > p.hint{display:none}
+    #drawModal .padwrap{grid-column:1 / -1; min-height:0}
+    #drawModal #pad{position:absolute; inset:0; width:100%; height:100%}
+    #drawModal .padbar{flex-wrap:nowrap}
+    #drawModal .btn.conf{min-width:120px; min-height:42px; font-size:15px}
+  }
   @media (max-width: 860px){
     .app{grid-template-columns:1fr; grid-template-rows:auto 1fr; height:auto; min-height:100dvh; overflow:visible}
     .rail{border-right:0; border-bottom:1px solid var(--line); max-height:none}
@@ -458,7 +472,7 @@
     <div class="stage" id="stage"></div>
     <div class="savedock" id="saveDock" hidden>
       <h2>¿Ya revisaste todas las hojas?</h2>
-      <button class="btn primary big wide" id="saveDriveBtn" disabled>💾 Guardar en AppSheet</button>
+      <button class="btn primary big wide" id="saveDriveBtn" disabled>✅ Aceptar y guardar en AppSheet</button>
       <p class="hint" id="saveDriveHint">Guarda el PDF firmado en la columna [⚫Producer_Firmado] de la orden. Solo se activa si el documento vino de una orden.</p>
       <button class="btn signdoc big wide" id="bfBtn" disabled>📄 Firmar Broker Fee con esta firma</button>
       <p class="hint" id="bfHint">Abre el Broker Fee de esta orden en otra pestaña con la misma firma del cliente.</p>
@@ -489,7 +503,7 @@
 
     <div class="padbar centro">
       <button class="btn conf" id="saveCancel">Cancelar</button>
-      <button class="btn primary conf" id="saveOk">Sí, guardar</button>
+      <button class="btn primary conf" id="saveOk">Guardar de todos modos</button>
     </div>
   </div>
 </div>
@@ -877,8 +891,8 @@
     var b = $("saveDriveBtn"); if (!b) return;
     b.classList.toggle("firmado", !!si);
     b.classList.toggle("primary", !si);
-    b.textContent = si ? "✅ Firmado" : "💾 Guardar en AppSheet";
-    b.title = si ? "Ya está guardado. Si cambias algo, el botón vuelve a Guardar." : "";
+    b.textContent = si ? "✅ Firmado" : "✅ Aceptar y guardar en AppSheet";
+    b.title = si ? "Ya está guardado. Si cambias algo, el botón vuelve a Aceptar." : "";
   }
 
   function updateCount(){
@@ -1371,8 +1385,30 @@
   function abrirPad(){
     PAD.strokes = []; PAD.cur = null;
     $("drawModal").hidden = false;
+    padFit();
     padRedraw();
   }
+
+  // Con el teléfono acostado el lienzo toma la forma de toda la pantalla (ancho fijo de 1800,
+  // alto proporcional) para que el trazo no se vea estirado. Al girar, la firma se reescala.
+  var PAD_LAND = window.matchMedia("(orientation: landscape) and (max-height: 520px)");
+  function padFit(){
+    var c = $("pad"), W = 1800, H = 600;
+    if (PAD_LAND.matches && !$("drawModal").hidden){
+      var r = c.parentNode.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) H = Math.max(200, Math.round(W * r.height / r.width));
+    }
+    if (c.width === W && c.height === H) return;
+    var sx = W / c.width, sy = H / c.height;
+    PAD.strokes.forEach(function(st){ st.p.forEach(function(pt){ pt[0] *= sx; pt[1] *= sy; }); });
+    c.width = W; c.height = H;
+    padRedraw();
+  }
+  var padFitT = null;
+  function padFitLuego(){ clearTimeout(padFitT); padFitT = setTimeout(padFit, 150); }
+  window.addEventListener("resize", padFitLuego);
+  window.addEventListener("orientationchange", padFitLuego);
+  if (PAD_LAND.addEventListener) PAD_LAND.addEventListener("change", padFitLuego);
   function cerrarPad(){ $("drawModal").hidden = true; }
 
   (function initPad(){
@@ -1629,8 +1665,10 @@
 
   $("saveDriveBtn").addEventListener("click", async function(){
     if (!S.driveFile){ toast("Este documento no vino de una orden de AppSheet."); return; }
+    if (S.guardando) return;
+    if (S.guardadoKey && S.guardadoKey === clavePuestos()){ toast("Este documento ya está guardado en AppSheet."); return; }
     var btn = this;
-    btn.disabled = true; btn.textContent = "Revisando…";
+    btn.disabled = true; btn.textContent = "Guardando…";
     var orden = S.ordenId || S.driveFile.name.split(".")[0];
     try {
       DESTINO = await findCell(orden, SHEET.colFirmado);
@@ -1641,13 +1679,16 @@
       marcarFirmado(!!S.guardadoKey); updateCount();
       return;
     }
-    marcarFirmado(!!S.guardadoKey); updateCount();
     var r = revisarFirmas();
+    // Firmas completas (o sin líneas detectadas): se guarda directo, sin ventana de confirmación.
+    // Solo se pregunta cuando hay líneas de firma del cliente sin firmar.
+    if (!r.total || !r.faltan.length){
+      await guardarAhora(btn);
+      return;
+    }
+    marcarFirmado(!!S.guardadoKey); updateCount();
     var box = $("saveCheck");
-    if (r.total && !r.faltan.length){
-      box.className = "okbox";
-      box.textContent = "✅ Firmas completas: " + r.total + " de " + r.total + " líneas de firma del cliente.";
-    } else if (r.total){
+    if (r.total){
       box.className = "warn";
       box.innerHTML = "<b>⚠️ Faltan firmas: " + r.firmadas + " de " + r.total + ".</b> Sin firma:<ul></ul>Revisa esas páginas antes de guardar.";
       var ul = box.querySelector("ul");
@@ -1656,9 +1697,6 @@
         li.textContent = "Página " + (f.page + 1) + ": " + f.label;
         ul.appendChild(li);
       });
-    } else {
-      box.className = "warn";
-      box.textContent = "No se detectaron líneas de firma en este PDF: confirma a mano que estén todas las firmas.";
     }
     var firmas = r.sigs, textos = S.stamps.length - firmas;
     $("saveFile").textContent = "[" + SHEET.colFirmado + "] ← " + orden + "." + SHEET.colFirmado + ".<hora>.pdf";
@@ -1669,23 +1707,31 @@
   $("saveCancel").addEventListener("click", function(){ $("saveModal").hidden = true; });
   $("saveModal").addEventListener("click", function(ev){ if (ev.target === this) $("saveModal").hidden = true; });
 
-  $("saveOk").addEventListener("click", async function(){
-    var b = this;
-    b.disabled = true; b.textContent = "Guardando…";
+  // Genera el PDF firmado, lo sube y escribe la ruta en [⚫Producer_Firmado]
+  async function guardarAhora(btn){
+    S.guardando = true;
+    btn.disabled = true; btn.textContent = "Guardando…";
     try {
       var out = await buildSignedPdf();
       var res = await guardarFirmado(out, DESTINO);
       $("saveModal").hidden = true;
       dstat("Guardado en [" + SHEET.colFirmado + "]: " + res.name, "on");
-      $("saveDriveHint").textContent = "✅ Guardado en [" + SHEET.colFirmado + "]. Sincroniza AppSheet para verlo.";
       S.guardadoKey = clavePuestos();
-      marcarFirmado(true);
       toast("Documento firmado guardado en AppSheet.");
     } catch(err){
       dstat(err.message || "No se pudo guardar", "err");
       toast("No se pudo guardar: " + (err.message || "error"), 5000);
     }
-    b.textContent = "Sí, guardar"; b.disabled = false;
+    S.guardando = false;
+    marcarFirmado(!!S.guardadoKey); updateCount();
+    if (S.guardadoKey) $("saveDriveHint").textContent = "✅ Guardado en [" + SHEET.colFirmado + "]. Sincroniza AppSheet para verlo.";
+  }
+
+  $("saveOk").addEventListener("click", async function(){
+    var b = this;
+    b.disabled = true; b.textContent = "Guardando…";
+    await guardarAhora($("saveDriveBtn"));
+    b.textContent = "Guardar de todos modos"; b.disabled = false;
   });
 
   /* ============================ Broker Fee con la misma firma ============================ */
